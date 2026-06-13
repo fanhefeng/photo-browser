@@ -129,7 +129,9 @@ pub fn build_media(path: &Path) -> Option<MediaItem> {
     if is_video {
         parse_video_meta(path, &mut photo);
         // 抽一帧做封面（复用 thumb:// 机制）
-        let _ = video_poster(path, &thumb_dst, 320);
+        if let Err(e) = video_poster(path, &thumb_dst, 320) {
+            tracing::warn!(path = %path.display(), error = %e, "视频封面生成失败");
+        }
     } else {
         parse_exif(path, &mut photo);
 
@@ -144,9 +146,11 @@ pub fn build_media(path: &Path) -> Option<MediaItem> {
         if matches!(photo.orientation, Some(5) | Some(6) | Some(7) | Some(8)) {
             std::mem::swap(&mut photo.width, &mut photo.height);
         }
-        // (重新)生成缩略图。build_photo 只对新增/变更的文件调用，因此总是重建，
+        // (重新)生成缩略图。build_media 只对新增/变更的文件调用，因此总是重建，
         // 避免文件被原地替换后仍显示旧缩略图。
-        let _ = make_resized(path, &thumb_dst, 320, &ext, photo.orientation);
+        if let Err(e) = make_resized(path, &thumb_dst, 320, &ext, photo.orientation) {
+            tracing::warn!(path = %path.display(), error = %e, "缩略图生成失败");
+        }
     }
 
     // 失效旧预览图，下次打开大图时按新内容懒生成
@@ -170,7 +174,10 @@ fn parse_video_meta(path: &Path, photo: &mut MediaItem) {
         .output()
     {
         Ok(o) if o.status.success() => o.stdout,
-        _ => return,
+        _ => {
+            tracing::warn!(path = %path.display(), "ffprobe 读取视频元数据失败");
+            return;
+        }
     };
     let json: serde_json::Value = match serde_json::from_slice(&out) {
         Ok(v) => v,
@@ -323,7 +330,8 @@ pub fn ensure_preview(path: &Path, id: &str, ext: &str, orientation: Option<i64>
     if dst.exists() {
         return true;
     }
-    make_resized(path, &dst, 1920, ext, orientation).is_ok()
+    // 较高分辨率，让 HEIC/TIFF 等不可直接显示的格式也接近原图清晰度
+    make_resized(path, &dst, 3840, ext, orientation).is_ok()
 }
 
 /// 把源图缩放到最长边 `max` 像素并保存为 JPEG。

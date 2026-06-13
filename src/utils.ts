@@ -28,6 +28,14 @@ export function formatDateShort(unixSec: number | null): string {
   return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
 }
 
+// WebView 可直接解码的图片格式——这些直接加载原图，呈现原始清晰度。
+// 仅列入 PHOTO_EXTS 中确实会被扫描的格式。
+const WEB_DISPLAYABLE = new Set(["jpg", "jpeg", "png", "webp", "gif", "bmp"]);
+
+export function isWebDisplayable(ext: string): boolean {
+  return WEB_DISPLAYABLE.has(ext.toLowerCase());
+}
+
 export function formatDuration(sec: number | null): string {
   if (!sec || sec < 0) return "";
   const total = Math.round(sec);

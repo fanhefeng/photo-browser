@@ -5,6 +5,7 @@ import "./App.css";
 import type { Facets, Filter, Photo } from "./types";
 import { emptyFilter } from "./types";
 import {
+  appInfo,
   cancelScan,
   getFacets,
   pickDirectory,
@@ -30,11 +31,18 @@ export default function App() {
   // 扫描完成后 +1，触发重新查询（避免事件监听里捕获到过期的 refresh）
   const [reloadKey, setReloadKey] = useState(0);
 
-  // —— 启动时检测视频工具是否可用 ——
+  // —— 启动时检测视频工具是否可用，并打印环境/目录信息 ——
   useEffect(() => {
     videoSupport()
       .then(setVideoOk)
       .catch(() => setVideoOk(true));
+    appInfo()
+      .then((info) =>
+        console.info(
+          `[环境] ${info.env}\n数据目录: ${info.data_dir}\n缓存目录: ${info.cache_dir}\n日志目录: ${info.log_dir}\n索引库: ${info.db_path}`
+        )
+      )
+      .catch(() => {});
   }, []);
 
   // —— 监听扫描进度事件 ——

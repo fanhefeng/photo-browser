@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Photo } from "../types";
 import {
   ensurePreview,
+  originalSrc,
   previewUrl,
   revealInFinder,
   thumbUrl,
@@ -12,6 +13,7 @@ import {
   formatDuration,
   formatExposure,
   formatSize,
+  isWebDisplayable,
 } from "../utils";
 import { useZoom } from "../hooks/useZoom";
 
@@ -88,9 +90,9 @@ function VideoStage({ photo }: { photo: Photo }) {
       key={photo.id}
       className="lightbox__video"
       src={videoSrc(photo.path)}
-      poster={thumbUrl(photo.id)}
       controls
       autoPlay
+      preload="auto"
       onError={() => setFailed(true)}
       onClick={(e) => e.stopPropagation()}
     />
@@ -99,18 +101,37 @@ function VideoStage({ photo }: { photo: Photo }) {
 
 /** 照片查看：缩放 + 平移（逻辑封装在 useZoom） */
 function PhotoStage({ photo, neighbors }: { photo: Photo; neighbors: (Photo | undefined)[] }) {
-  const [previewReady, setPreviewReady] = useState(false);
+  // 当前显示的图源：先缩略图占位，高清图后台预解码完成后再整体替换
+  const [src, setSrc] = useState(() => thumbUrl(photo.id));
   const { zoom, stageRef, setScale, reset, bind } = useZoom(photo.id);
 
-  // 切换照片：按需生成高清预览，预热相邻
   useEffect(() => {
-    setPreviewReady(false);
+    setSrc(thumbUrl(photo.id));
     let alive = true;
-    ensurePreview(photo.id)
-      .then((ok) => alive && setPreviewReady(ok))
-      .catch(() => {});
+    // 预解码完成后再替换，避免半路糊图闪烁；失败时可走回退
+    const swapWhenLoaded = (url: string, onFail?: () => void) => {
+      const img = new Image();
+      img.onload = () => alive && setSrc(url);
+      img.onerror = () => alive && onFail?.();
+      img.src = url;
+    };
+    // 回退/兜底：生成并加载预览图（preview:// 对任意路径都可用）
+    const loadPreview = () =>
+      ensurePreview(photo.id)
+        .then((ok) => ok && swapWhenLoaded(previewUrl(photo.id)))
+        .catch(() => {});
+
+    if (isWebDisplayable(photo.ext)) {
+      // 浏览器可解码：直接上原图（原始清晰度）；若原图加载失败
+      //（如路径不在 asset scope 内），回退到预览图，避免永久停留在模糊缩略图。
+      swapWhenLoaded(originalSrc(photo.path), loadPreview);
+    } else {
+      // HEIC/TIFF 等：用高分辨率预览图
+      loadPreview();
+    }
+    // 预热相邻的非原生格式预览
     neighbors.forEach((n) => {
-      if (n && n.kind !== "video") ensurePreview(n.id).catch(() => {});
+      if (n && n.kind === "photo" && !isWebDisplayable(n.ext)) ensurePreview(n.id).catch(() => {});
     });
     return () => {
       alive = false;
@@ -121,7 +142,7 @@ function PhotoStage({ photo, neighbors }: { photo: Photo; neighbors: (Photo | un
     <div ref={stageRef} className="zoom-stage" onClick={(e) => e.stopPropagation()} {...bind}>
       <img
         className="lightbox__img"
-        src={previewReady ? previewUrl(photo.id) : thumbUrl(photo.id)}
+        src={src}
         alt={photo.filename}
         draggable={false}
         style={{
@@ -130,7 +151,12 @@ function PhotoStage({ photo, neighbors }: { photo: Photo; neighbors: (Photo | un
         }}
       />
 
-      <div className="zoom-bar" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="zoom-bar"
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <button className="zoom-bar__btn" onClick={() => setScale(1 / 1.4)} aria-label="缩小">
           −
         </button>

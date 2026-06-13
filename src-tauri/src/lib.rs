@@ -2,6 +2,7 @@
 
 mod cache;
 mod db;
+mod logging;
 mod media;
 
 use std::collections::HashSet;
@@ -11,6 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use rayon::prelude::*;
 use serde_json::json;
+use tauri::menu::{Menu, MenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, State};
 use walkdir::WalkDir;
 
@@ -61,12 +63,39 @@ fn cancel_scan(state: State<AppState>) {
 /// 视频功能是否可用（依赖 ffprobe/ffmpeg）。前端据此提示用户。
 #[tauri::command]
 fn video_support() -> bool {
-    media::has_video_tools()
+    let ok = media::has_video_tools();
+    tracing::info!(available = ok, "视频工具(ffprobe/ffmpeg)检测");
+    ok
+}
+
+/// 运行环境与各目录地址（便于诊断与定位日志/缓存）。
+#[derive(serde::Serialize)]
+struct AppInfo {
+    env: String,
+    data_dir: String,
+    cache_dir: String,
+    log_dir: String,
+    db_path: String,
+}
+
+#[tauri::command]
+fn app_info() -> AppInfo {
+    AppInfo {
+        env: cache::ENV_NAME.to_string(),
+        data_dir: cache::data_dir().display().to_string(),
+        cache_dir: cache::cache_dir().display().to_string(),
+        log_dir: cache::logs_dir().display().to_string(),
+        db_path: cache::db_path().display().to_string(),
+    }
 }
 
 fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
+    tracing::info!(root = %root, "扫描开始");
     let cancel = app.state::<AppState>().cancel.clone();
-    let mut conn = db::open().map_err(|e| e.to_string())?;
+    let mut conn = db::open().map_err(|e| {
+        tracing::error!(error = %e, "打开数据库失败");
+        e.to_string()
+    })?;
 
     // 1. 收集目录下所有媒体文件
     let files: Vec<PathBuf> = WalkDir::new(&root)
@@ -98,6 +127,7 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
         .collect();
 
     let total = to_process.len();
+    tracing::info!(files = files.len(), to_process = total, "扫描：开始处理");
     let _ = app.emit("scan-progress", json!({ "done": 0, "total": total }));
 
     // 3. 并行解析 + 生成缩略图/封面（rayon），实时上报进度；检查取消标志
@@ -118,7 +148,10 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
         .collect();
 
     // 4. 写入索引（即使被取消，也保留已处理的部分）
-    db::upsert_photos(&mut conn, &items).map_err(|e| e.to_string())?;
+    if let Err(e) = db::upsert_photos(&mut conn, &items) {
+        tracing::error!(error = %e, count = items.len(), "写入索引失败");
+        return Err(e.to_string());
+    }
 
     // 5. 清理已删除的文件——仅在未取消时执行（取消时扫描不完整，删除不可靠）。
     //    `existing` 已限定在当前 root 下，不会误伤其他目录的索引。
@@ -140,6 +173,7 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
         }
     }
 
+    tracing::info!(processed = items.len(), cancelled, "扫描完成");
     let _ = app.emit(
         "scan-done",
         json!({ "processed": items.len(), "total_files": files.len(), "cancelled": cancelled }),
@@ -231,6 +265,11 @@ fn image_protocol<R: tauri::Runtime>(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    cache::ensure_dirs();
+    cache::migrate_previews();
+    logging::init();
+    tracing::info!(env = cache::ENV_NAME, "应用启动");
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -243,12 +282,35 @@ pub fn run() {
                 scanning: AtomicBool::new(false),
                 cancel: Arc::new(AtomicBool::new(false)),
             });
+
+            // 原生菜单栏：在默认菜单（含 退出/复制/粘贴 等）基础上追加“目录”子菜单
+            let h = app.handle().clone();
+            let menu = Menu::default(&h)?;
+            let open_data = MenuItem::with_id(&h, "open_data", "打开数据目录", true, None::<&str>)?;
+            let open_cache =
+                MenuItem::with_id(&h, "open_cache", "打开缓存目录", true, None::<&str>)?;
+            let open_logs = MenuItem::with_id(&h, "open_logs", "打开日志目录", true, None::<&str>)?;
+            let dirs = Submenu::with_items(&h, "目录", true, &[&open_data, &open_cache, &open_logs])?;
+            menu.append(&dirs)?;
+            app.set_menu(menu)?;
+            app.on_menu_event(|_app, event| {
+                let dir = match event.id().as_ref() {
+                    "open_data" => cache::data_dir(),
+                    "open_cache" => cache::cache_dir(),
+                    "open_logs" => cache::logs_dir(),
+                    _ => return,
+                };
+                if let Err(e) = std::process::Command::new("open").arg(&dir).spawn() {
+                    tracing::warn!(error = %e, dir = %dir.display(), "打开目录失败");
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             scan_directory,
             cancel_scan,
             video_support,
+            app_info,
             query_photos,
             get_facets,
             get_photo,

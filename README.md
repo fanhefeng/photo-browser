@@ -27,13 +27,54 @@ Rust 后端 (src-tauri)
   · walkdir 扫描   · kamadak-exif 解析   · image/sips 缩略图
   · rayon 并行     · rusqlite 索引 (SQLite, WAL)
         │
-缓存目录: ~/Library/Caches/com.fhf.photo-browser/
+缓存根目录（随环境/系统而定，见下文「运行环境与目录」）
   ├── index.db      索引数据库
   ├── thumbs/       320px 缩略图（扫描时生成）
-  └── previews/     1920px 预览图（打开大图时懒生成）
+  ├── previews/     高分辨率预览（HEIC/TIFF 等懒生成，最长边 3840px）
+  └── logs/         运行日志（按天滚动）
 ```
 
 **关键设计**：扫描一次把元数据写入 SQLite，之后所有筛选/排序都是数据库查询；缩略图通过自定义 URI 协议由 WebView 原生加载，而非 IPC 传 base64——这是性能丝滑的基础。
+
+## 运行环境与目录
+
+派生数据按**用途**分三类目录（遵循各平台规范），并按**环境**（dev/prod）与**系统**隔离，互不污染。
+
+- **环境判定**：`tauri dev`（debug 构建）= **dev**，目录名 `com.fhf.photo-browser-dev`；`tauri build`（release 构建）= **prod**，目录名 `com.fhf.photo-browser`。
+- **为什么分三类**：缓存目录会被系统清理（磁盘紧张/优化存储/清理工具）→ 只放可再生的缩略图/预览图；索引库与日志不应被清理 → 放数据目录与日志目录。
+
+### 开发环境 (dev) — `tauri dev`
+
+| 类别 | macOS | Linux | Windows |
+|------|-------|-------|---------|
+| 数据 `index.db` | `~/Library/Application Support/com.fhf.photo-browser-dev/` | `~/.local/share/com.fhf.photo-browser-dev/` | `%LOCALAPPDATA%\com.fhf.photo-browser-dev\` |
+| 缓存 `thumbs/` `previews/` | `~/Library/Caches/com.fhf.photo-browser-dev/` | `~/.cache/com.fhf.photo-browser-dev/` | `%LOCALAPPDATA%\com.fhf.photo-browser-dev\` |
+| 日志 `photo-browser.log.<日期>` | `~/Library/Logs/com.fhf.photo-browser-dev/` | `~/.local/share/com.fhf.photo-browser-dev/logs/` | `%LOCALAPPDATA%\com.fhf.photo-browser-dev\logs\` |
+
+### 生产环境 (prod) — `tauri build`
+
+| 类别 | macOS | Linux | Windows |
+|------|-------|-------|---------|
+| 数据 `index.db` | `~/Library/Application Support/com.fhf.photo-browser/` | `~/.local/share/com.fhf.photo-browser/` | `%LOCALAPPDATA%\com.fhf.photo-browser\` |
+| 缓存 `thumbs/` `previews/` | `~/Library/Caches/com.fhf.photo-browser/` | `~/.cache/com.fhf.photo-browser/` | `%LOCALAPPDATA%\com.fhf.photo-browser\` |
+| 日志 `photo-browser.log.<日期>` | `~/Library/Logs/com.fhf.photo-browser/` | `~/.local/share/com.fhf.photo-browser/logs/` | `%LOCALAPPDATA%\com.fhf.photo-browser\logs\` |
+
+### 各文件说明
+
+| 文件 | 说明 |
+|------|------|
+| `index.db` | SQLite 索引库（WAL 模式，运行时另有 `index.db-wal` / `index.db-shm`） |
+| `thumbs/<id>.jpg` | 320px 缩略图，扫描时生成（`<id>` 为文件绝对路径的 blake3 哈希） |
+| `previews/<id>.jpg` | 高分辨率预览，仅 HEIC/TIFF 等不可直接显示的格式生成（最长边 3840px） |
+| `logs/photo-browser.log.<日期>` | 运行日志，按天滚动；dev 级别 `debug`、prod 级别 `info`，可用 `RUST_LOG` 覆盖 |
+
+### 备注
+
+- JPG/PNG/WebP/GIF 等 WebView 可直接解码的格式，大图**直接读原文件**呈现原始清晰度，不生成预览。
+- Windows 上数据与缓存同属 `%LOCALAPPDATA%`，靠不同子目录/文件名区分，不会冲突。
+- 路径解析（`dirs` crate）跨平台，但部分功能（HEIC 解码用 `sips`、"在访达中显示"用 `open`）目前面向 macOS；Linux/Windows 下数据会落在上表位置，但相关功能需另行适配。
+- 运行时实际路径：启动会打印到 DevTools 控制台（含三类目录），或调用 `app_info` 命令获取。
+- **历史遗留**：旧版本曾把所有数据混放在 `~/Library/Caches/com.fhf.photo-browser`（macOS），可安全删除：`rm -rf ~/Library/Caches/com.fhf.photo-browser`。
 
 ## 开发
 

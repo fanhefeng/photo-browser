@@ -25,6 +25,19 @@ export function videoSupport(): Promise<boolean> {
   return invoke<boolean>("video_support");
 }
 
+export interface AppInfo {
+  env: string; // dev | prod
+  data_dir: string;
+  cache_dir: string;
+  log_dir: string;
+  db_path: string;
+}
+
+/** 运行环境与各目录地址（诊断用） */
+export function appInfo(): Promise<AppInfo> {
+  return invoke<AppInfo>("app_info");
+}
+
 export function queryPhotos(filter: Filter): Promise<Photo[]> {
   return invoke<Photo[]>("query_photos", { filter });
 }
@@ -53,3 +66,6 @@ export const previewUrl = (id: string) => `preview://localhost/${id}.jpg`;
 
 /** 视频原始文件 URL（走 Tauri asset 协议，支持 Range 拖动进度） */
 export const videoSrc = (path: string) => convertFileSrc(path);
+
+/** 原始文件 URL（走 asset 协议）。用于浏览器可直接解码的图片，呈现原图清晰度 */
+export const originalSrc = (path: string) => convertFileSrc(path);

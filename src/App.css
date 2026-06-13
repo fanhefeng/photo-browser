@@ -457,18 +457,16 @@ body {
   padding: 24px;
 }
 .lightbox__img {
-  max-width: 100%;
-  max-height: 100%;
+  /* 占满舞台并按宽高比留白：缩略图占位即满屏，预览在原地变清晰，不再尺寸跳变 */
+  width: 100%;
+  height: 100%;
   object-fit: contain;
-  border-radius: 6px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   will-change: transform;
 }
 .lightbox__video {
-  max-width: 100%;
-  max-height: 100%;
-  border-radius: 6px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
   outline: none;
 }
 .media-error {
