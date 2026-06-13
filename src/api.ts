@@ -15,6 +15,16 @@ export function scanDirectory(path: string): Promise<number> {
   return invoke<number>("scan_directory", { path });
 }
 
+/** 请求取消正在进行的扫描 */
+export function cancelScan(): Promise<void> {
+  return invoke("cancel_scan");
+}
+
+/** 视频功能是否可用（ffprobe/ffmpeg 是否就绪） */
+export function videoSupport(): Promise<boolean> {
+  return invoke<boolean>("video_support");
+}
+
 export function queryPhotos(filter: Filter): Promise<Photo[]> {
   return invoke<Photo[]>("query_photos", { filter });
 }

@@ -1,7 +1,7 @@
-//! 单张照片的处理：解析 EXIF、读取尺寸、生成缩略图/预览图。
+//! 单个媒体文件（照片或视频）的处理：解析元数据、读取尺寸、生成缩略图/封面/预览图。
 //!
 //! 这一层完全不碰数据库，纯函数式地把"一个文件路径"变成"一条结构化记录"，
-//! 因此可以被 rayon 安全地并行调用。
+//! 因此可以被 rayon 安全地并行调用。照片走 EXIF + image/sips，视频走 ffprobe + ffmpeg。
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -25,6 +25,19 @@ pub fn is_media_ext(ext: &str) -> bool {
     PHOTO_EXTS.contains(&ext) || VIDEO_EXTS.contains(&ext)
 }
 
+/// 视频元数据/封面所需的外部工具（ffprobe + ffmpeg）是否就绪。
+pub fn has_video_tools() -> bool {
+    tool_ok("ffprobe") && tool_ok("ffmpeg")
+}
+
+fn tool_ok(name: &str) -> bool {
+    Command::new(name)
+        .arg("-version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
 /// macOS 上 image crate 无法直接解码、需要走 sips 兜底的格式
 fn needs_sips(ext: &str) -> bool {
     matches!(ext, "heic" | "heif" | "avif")
@@ -32,7 +45,7 @@ fn needs_sips(ext: &str) -> bool {
 
 /// 一条完整的媒体记录（照片或视频），序列化后直接发给前端。
 #[derive(Serialize, Clone, Debug, Default)]
-pub struct Photo {
+pub struct MediaItem {
     pub id: String,
     pub path: String,
     pub filename: String,
@@ -62,16 +75,16 @@ pub struct Photo {
     pub orientation: Option<i64>,
 }
 
-/// 稳定的照片 id：绝对路径的 blake3 哈希。
+/// 稳定的媒体 id：绝对路径的 blake3 哈希。
 /// 同一文件多次扫描得到相同 id，从而支持增量更新与缩略图复用。
-pub fn photo_id(path: &Path) -> String {
+pub fn media_id(path: &Path) -> String {
     blake3::hash(path.to_string_lossy().as_bytes())
         .to_hex()
         .to_string()
 }
 
 /// 处理单个文件：解析元数据并生成缩略图。失败返回 None（跳过该文件）。
-pub fn build_photo(path: &Path) -> Option<Photo> {
+pub fn build_media(path: &Path) -> Option<MediaItem> {
     let meta = std::fs::metadata(path).ok()?;
     if !meta.is_file() {
         return None;
@@ -85,7 +98,7 @@ pub fn build_photo(path: &Path) -> Option<Photo> {
         return None;
     }
 
-    let id = photo_id(path);
+    let id = media_id(path);
     let mtime = meta
         .modified()
         .ok()
@@ -94,7 +107,7 @@ pub fn build_photo(path: &Path) -> Option<Photo> {
         .unwrap_or(0);
 
     let is_video = VIDEO_EXTS.contains(&ext.as_str());
-    let mut photo = Photo {
+    let mut photo = MediaItem {
         id: id.clone(),
         path: path.to_string_lossy().to_string(),
         filename: path
@@ -143,7 +156,7 @@ pub fn build_photo(path: &Path) -> Option<Photo> {
 }
 
 /// 用 ffprobe 读取视频元数据（时长/分辨率/拍摄时间/机型/GPS）。
-fn parse_video_meta(path: &Path, photo: &mut Photo) {
+fn parse_video_meta(path: &Path, photo: &mut MediaItem) {
     let out = match Command::new("ffprobe")
         .args([
             "-v",
@@ -390,7 +403,7 @@ fn apply_orientation(img: image::DynamicImage, orientation: i64) -> image::Dynam
 }
 
 /// 解析 EXIF，把能拿到的字段填进 photo。读不到 EXIF 不算错误（很多 PNG 就没有）。
-fn parse_exif(path: &Path, photo: &mut Photo) {
+fn parse_exif(path: &Path, photo: &mut MediaItem) {
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(_) => return,
@@ -511,4 +524,40 @@ fn get_gps(exif: &exif::Exif, coord: Tag, refr: Tag, negative_refs: &[char]) -> 
         })
         .unwrap_or(1.0);
     Some(deg * sign)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn iso6709_basic() {
+        let (lat, lon) = parse_iso6709("+37.7858-122.4064+010.000/").unwrap();
+        assert!((lat - 37.7858).abs() < 1e-6);
+        assert!((lon + 122.4064).abs() < 1e-6);
+    }
+
+    #[test]
+    fn iso6709_southern_eastern() {
+        let (lat, lon) = parse_iso6709("-33.8688+151.2093/").unwrap();
+        assert!((lat + 33.8688).abs() < 1e-6);
+        assert!((lon - 151.2093).abs() < 1e-6);
+    }
+
+    #[test]
+    fn iso8601_variants() {
+        assert!(parse_iso8601("2023-08-15T10:30:00.000000Z").is_some());
+        assert!(parse_iso8601("2023-08-15T10:30:00Z").is_some());
+        // RFC3339 带时区
+        assert!(parse_iso8601("2023-08-15T10:30:00+08:00").is_some());
+        assert!(parse_iso8601("not-a-date").is_none());
+    }
+
+    #[test]
+    fn media_ext_classification() {
+        assert!(is_media_ext("jpg"));
+        assert!(is_media_ext("mp4"));
+        assert!(!is_media_ext("txt"));
+        assert!(VIDEO_EXTS.contains(&"mov"));
+    }
 }

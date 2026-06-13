@@ -74,6 +74,10 @@ body {
   padding: 6px 9px;
   min-width: 32px;
 }
+.btn--sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
 .link-btn {
   background: none;
   border: none;
@@ -163,6 +167,40 @@ body {
   color: var(--text-dim);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+/* —————————————— 提示横幅 —————————————— */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  font-size: 12.5px;
+  flex: 0 0 auto;
+}
+.banner--warn {
+  background: rgba(255, 184, 0, 0.12);
+  color: #ffcf66;
+  border-bottom: 1px solid rgba(255, 184, 0, 0.2);
+}
+.banner--error {
+  background: rgba(255, 86, 86, 0.12);
+  color: #ff8a8a;
+  border-bottom: 1px solid rgba(255, 86, 86, 0.22);
+}
+.banner__text {
+  flex: 1;
+}
+.banner__close {
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+  font-size: 13px;
+}
+.banner__close:hover {
+  opacity: 1;
 }
 
 /* —————————————— 主体布局 —————————————— */
@@ -301,6 +339,10 @@ body {
   display: block;
   transition: transform 0.25s ease;
 }
+/* 缩略图加载失败：隐藏破图，露出单元格底色 */
+.cell__img--broken {
+  visibility: hidden;
+}
 .cell:hover .cell__img {
   transform: scale(1.05);
 }
@@ -428,6 +470,15 @@ body {
   border-radius: 6px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   outline: none;
+}
+.media-error {
+  color: var(--text-dim);
+  text-align: center;
+  line-height: 1.9;
+}
+.media-error__sub {
+  font-size: 12px;
+  color: var(--text-faint);
 }
 
 /* 缩放舞台 */

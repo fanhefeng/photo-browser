@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Photo } from "../types";
 import {
   ensurePreview,
@@ -13,6 +13,7 @@ import {
   formatExposure,
   formatSize,
 } from "../utils";
+import { useZoom } from "../hooks/useZoom";
 
 interface Props {
   photos: Photo[];
@@ -21,12 +22,20 @@ interface Props {
   onNavigate: (index: number) => void;
 }
 
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-const MAX_SCALE = 8;
-
 export default function Lightbox({ photos, index, onClose, onNavigate }: Props) {
   const photo = photos[index];
   const isVideo = photo.kind === "video";
+
+  // 键盘导航
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowLeft" && index > 0) onNavigate(index - 1);
+      else if (e.key === "ArrowRight" && index < photos.length - 1) onNavigate(index + 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [index, photos.length, onClose, onNavigate]);
 
   return (
     <div className="lightbox" onClick={onClose}>
@@ -35,6 +44,7 @@ export default function Lightbox({ photos, index, onClose, onNavigate }: Props) 
           <button
             className="lightbox__nav lightbox__nav--prev"
             onClick={() => onNavigate(index - 1)}
+            aria-label="上一张"
           >
             ‹
           </button>
@@ -50,6 +60,7 @@ export default function Lightbox({ photos, index, onClose, onNavigate }: Props) 
           <button
             className="lightbox__nav lightbox__nav--next"
             onClick={() => onNavigate(index + 1)}
+            aria-label="下一张"
           >
             ›
           </button>
@@ -57,20 +68,21 @@ export default function Lightbox({ photos, index, onClose, onNavigate }: Props) 
       </div>
 
       <DetailPanel photo={photo} onClose={onClose} />
-
-      {/* 键盘导航 */}
-      <KeyNav
-        index={index}
-        count={photos.length}
-        onClose={onClose}
-        onNavigate={onNavigate}
-      />
     </div>
   );
 }
 
 /** 视频播放（asset 协议，支持拖动进度） */
 function VideoStage({ photo }: { photo: Photo }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <div className="media-error" onClick={(e) => e.stopPropagation()}>
+        无法播放该视频<br />
+        <span className="media-error__sub">可能是编码不受 WebView 支持（如部分 MOV/HEVC）</span>
+      </div>
+    );
+  }
   return (
     <video
       key={photo.id}
@@ -79,91 +91,34 @@ function VideoStage({ photo }: { photo: Photo }) {
       poster={thumbUrl(photo.id)}
       controls
       autoPlay
+      onError={() => setFailed(true)}
       onClick={(e) => e.stopPropagation()}
     />
   );
 }
 
-/** 照片查看：缩放 + 平移 */
+/** 照片查看：缩放 + 平移（逻辑封装在 useZoom） */
 function PhotoStage({ photo, neighbors }: { photo: Photo; neighbors: (Photo | undefined)[] }) {
   const [previewReady, setPreviewReady] = useState(false);
-  const [zoom, setZoom] = useState({ scale: 1, x: 0, y: 0 });
-  const stageRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  const { zoom, stageRef, setScale, reset, bind } = useZoom(photo.id);
 
-  // 切换照片：重置缩放，按需生成高清预览，预热相邻
+  // 切换照片：按需生成高清预览，预热相邻
   useEffect(() => {
-    setZoom({ scale: 1, x: 0, y: 0 });
     setPreviewReady(false);
     let alive = true;
-    ensurePreview(photo.id).then((ok) => alive && setPreviewReady(ok));
+    ensurePreview(photo.id)
+      .then((ok) => alive && setPreviewReady(ok))
+      .catch(() => {});
     neighbors.forEach((n) => {
-      if (n && n.kind !== "video") ensurePreview(n.id);
+      if (n && n.kind !== "video") ensurePreview(n.id).catch(() => {});
     });
     return () => {
       alive = false;
     };
   }, [photo.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 以光标为锚点缩放
-  const zoomAt = useCallback((clientX: number, clientY: number, factor: number) => {
-    const rect = stageRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const cx = clientX - (rect.left + rect.width / 2);
-    const cy = clientY - (rect.top + rect.height / 2);
-    setZoom((z) => {
-      const scale = clamp(z.scale * factor, 1, MAX_SCALE);
-      if (scale === 1) return { scale: 1, x: 0, y: 0 };
-      const ratio = scale / z.scale;
-      return { scale, x: cx - (cx - z.x) * ratio, y: cy - (cy - z.y) * ratio };
-    });
-  }, []);
-
-  const onWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015));
-  };
-
-  const onDoubleClick = (e: React.MouseEvent) => {
-    if (zoom.scale > 1) setZoom({ scale: 1, x: 0, y: 0 });
-    else zoomAt(e.clientX, e.clientY, 2.5);
-  };
-
-  const onMouseDown = (e: React.MouseEvent) => {
-    if (zoom.scale <= 1) return;
-    e.preventDefault();
-    drag.current = { x: e.clientX, y: e.clientY, ox: zoom.x, oy: zoom.y };
-  };
-  const onMouseMove = (e: React.MouseEvent) => {
-    if (!drag.current) return;
-    setZoom((z) => ({
-      ...z,
-      x: drag.current!.ox + (e.clientX - drag.current!.x),
-      y: drag.current!.oy + (e.clientY - drag.current!.y),
-    }));
-  };
-  const endDrag = () => {
-    drag.current = null;
-  };
-
-  const setScale = (factor: number) => {
-    const rect = stageRef.current?.getBoundingClientRect();
-    if (rect) zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, factor);
-  };
-
   return (
-    <div
-      ref={stageRef}
-      className="zoom-stage"
-      onWheel={onWheel}
-      onDoubleClick={onDoubleClick}
-      onMouseDown={onMouseDown}
-      onMouseMove={onMouseMove}
-      onMouseUp={endDrag}
-      onMouseLeave={endDrag}
-      onClick={(e) => e.stopPropagation()}
-      style={{ cursor: zoom.scale > 1 ? (drag.current ? "grabbing" : "grab") : "default" }}
-    >
+    <div ref={stageRef} className="zoom-stage" onClick={(e) => e.stopPropagation()} {...bind}>
       <img
         className="lightbox__img"
         src={previewReady ? previewUrl(photo.id) : thumbUrl(photo.id)}
@@ -171,52 +126,24 @@ function PhotoStage({ photo, neighbors }: { photo: Photo; neighbors: (Photo | un
         draggable={false}
         style={{
           transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})`,
-          transition: drag.current ? "none" : "transform 0.12s ease-out",
+          transition: zoom.scale === 1 ? "transform 0.12s ease-out" : "none",
         }}
       />
 
       <div className="zoom-bar" onClick={(e) => e.stopPropagation()}>
-        <button className="zoom-bar__btn" onClick={() => setScale(1 / 1.4)} title="缩小">
+        <button className="zoom-bar__btn" onClick={() => setScale(1 / 1.4)} aria-label="缩小">
           −
         </button>
         <span className="zoom-bar__pct">{Math.round(zoom.scale * 100)}%</span>
-        <button className="zoom-bar__btn" onClick={() => setScale(1.4)} title="放大">
+        <button className="zoom-bar__btn" onClick={() => setScale(1.4)} aria-label="放大">
           +
         </button>
-        <button
-          className="zoom-bar__btn"
-          onClick={() => setZoom({ scale: 1, x: 0, y: 0 })}
-          title="复位 (适应屏幕)"
-        >
+        <button className="zoom-bar__btn" onClick={reset} aria-label="适应屏幕">
           ⤢
         </button>
       </div>
     </div>
   );
-}
-
-/** 键盘：Esc 关闭、左右翻页 */
-function KeyNav({
-  index,
-  count,
-  onClose,
-  onNavigate,
-}: {
-  index: number;
-  count: number;
-  onClose: () => void;
-  onNavigate: (i: number) => void;
-}) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      else if (e.key === "ArrowLeft" && index > 0) onNavigate(index - 1);
-      else if (e.key === "ArrowRight" && index < count - 1) onNavigate(index + 1);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [index, count, onClose, onNavigate]);
-  return null;
 }
 
 function DetailPanel({ photo, onClose }: { photo: Photo; onClose: () => void }) {
@@ -227,13 +154,47 @@ function DetailPanel({ photo, onClose }: { photo: Photo; onClose: () => void }) 
       "视频"
     : formatExposure(photo) || "无拍摄参数";
 
+  const gps =
+    photo.gps_lat != null && photo.gps_lon != null ? (
+      <a
+        className="link"
+        href={`https://www.openstreetmap.org/?mlat=${photo.gps_lat}&mlon=${photo.gps_lon}#map=15/${photo.gps_lat}/${photo.gps_lon}`}
+        target="_blank"
+        rel="noreferrer"
+      >
+        {photo.gps_lat.toFixed(5)}, {photo.gps_lon.toFixed(5)}
+      </a>
+    ) : (
+      "—"
+    );
+
+  // 配置驱动的字段表：show=false 的行（视频无关的拍摄参数）会被过滤掉
+  const rows: { label: string; value: React.ReactNode; show?: boolean }[] = [
+    { label: "拍摄时间", value: formatDate(photo.taken_at) },
+    { label: "尺寸", value: dims },
+    { label: "时长", value: formatDuration(photo.duration) || "—", show: isVideo },
+    { label: "大小", value: formatSize(photo.file_size) },
+    { label: "格式", value: photo.ext.toUpperCase() },
+    { label: "相机", value: joinCamera(photo) },
+    { label: "镜头", value: photo.lens ?? "—", show: !isVideo },
+    { label: "光圈", value: photo.aperture ? `f/${photo.aperture}` : "—", show: !isVideo },
+    { label: "快门", value: photo.shutter ?? "—", show: !isVideo },
+    { label: "ISO", value: photo.iso ? String(photo.iso) : "—", show: !isVideo },
+    {
+      label: "焦距",
+      value: photo.focal_length ? `${Math.round(photo.focal_length)} mm` : "—",
+      show: !isVideo,
+    },
+    { label: "定位", value: gps },
+  ];
+
   return (
     <div className="detail" onClick={(e) => e.stopPropagation()}>
       <div className="detail__head">
         <h2 className="detail__title" title={photo.filename}>
           {photo.filename}
         </h2>
-        <button className="btn btn--icon" onClick={onClose} title="关闭 (Esc)">
+        <button className="btn btn--icon" onClick={onClose} aria-label="关闭 (Esc)" title="关闭 (Esc)">
           ✕
         </button>
       </div>
@@ -244,39 +205,11 @@ function DetailPanel({ photo, onClose }: { photo: Photo; onClose: () => void }) 
       </div>
 
       <dl className="detail__grid">
-        <Row label="拍摄时间" value={formatDate(photo.taken_at)} />
-        <Row label="尺寸" value={dims} />
-        {isVideo && <Row label="时长" value={formatDuration(photo.duration) || "—"} />}
-        <Row label="大小" value={formatSize(photo.file_size)} />
-        <Row label="格式" value={photo.ext.toUpperCase()} />
-        <Row label="相机" value={joinCamera(photo)} />
-        {!isVideo && <Row label="镜头" value={photo.lens ?? "—"} />}
-        {!isVideo && <Row label="光圈" value={photo.aperture ? `f/${photo.aperture}` : "—"} />}
-        {!isVideo && <Row label="快门" value={photo.shutter ?? "—"} />}
-        {!isVideo && <Row label="ISO" value={photo.iso ? String(photo.iso) : "—"} />}
-        {!isVideo && (
-          <Row
-            label="焦距"
-            value={photo.focal_length ? `${Math.round(photo.focal_length)} mm` : "—"}
-          />
-        )}
-        <Row
-          label="定位"
-          value={
-            photo.gps_lat != null && photo.gps_lon != null ? (
-              <a
-                className="link"
-                href={`https://www.openstreetmap.org/?mlat=${photo.gps_lat}&mlon=${photo.gps_lon}#map=15/${photo.gps_lat}/${photo.gps_lon}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {photo.gps_lat.toFixed(5)}, {photo.gps_lon.toFixed(5)}
-              </a>
-            ) : (
-              "—"
-            )
-          }
-        />
+        {rows
+          .filter((r) => r.show !== false)
+          .map((r) => (
+            <Row key={r.label} label={r.label} value={r.value} />
+          ))}
       </dl>
 
       <div className="detail__path" title={photo.path}>

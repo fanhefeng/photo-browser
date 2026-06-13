@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use rusqlite::{params, params_from_iter, types::ToSql, Connection};
 use serde::{Deserialize, Serialize};
 
-use crate::media::Photo;
+use crate::media::MediaItem;
 
 /// 打开（并初始化）索引数据库
 pub fn open() -> rusqlite::Result<Connection> {
@@ -79,7 +79,7 @@ pub fn existing_mtimes(conn: &Connection, root: &str) -> rusqlite::Result<HashMa
 }
 
 /// 批量写入（UPSERT）照片记录，单事务以保证速度。
-pub fn upsert_photos(conn: &mut Connection, photos: &[Photo]) -> rusqlite::Result<()> {
+pub fn upsert_photos(conn: &mut Connection, photos: &[MediaItem]) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     {
         let mut stmt = tx.prepare(
@@ -231,7 +231,7 @@ fn sort_column(s: &Option<String>) -> &'static str {
     }
 }
 
-pub fn query(conn: &Connection, f: &Filter) -> rusqlite::Result<Vec<Photo>> {
+pub fn query(conn: &Connection, f: &Filter) -> rusqlite::Result<Vec<MediaItem>> {
     let (where_sql, args) = build_where(f);
     let col = sort_column(&f.sort_by);
     let dir = if f.sort_dir.as_deref() == Some("asc") {
@@ -257,8 +257,8 @@ pub fn query(conn: &Connection, f: &Filter) -> rusqlite::Result<Vec<Photo>> {
     rows.collect()
 }
 
-fn row_to_photo(r: &rusqlite::Row) -> rusqlite::Result<Photo> {
-    Ok(Photo {
+fn row_to_photo(r: &rusqlite::Row) -> rusqlite::Result<MediaItem> {
+    Ok(MediaItem {
         id: r.get(0)?,
         path: r.get(1)?,
         filename: r.get(2)?,
@@ -285,7 +285,7 @@ fn row_to_photo(r: &rusqlite::Row) -> rusqlite::Result<Photo> {
 }
 
 /// 单张照片的完整信息（大图详情用）
-pub fn get_one(conn: &Connection, id: &str) -> rusqlite::Result<Option<Photo>> {
+pub fn get_one(conn: &Connection, id: &str) -> rusqlite::Result<Option<MediaItem>> {
     let mut stmt = conn.prepare(
         "SELECT id, path, filename, dir, ext, kind, file_size, mtime, width, height, duration,
                 taken_at, camera_make, camera_model, lens, iso, aperture, shutter, focal_length,
@@ -368,4 +368,44 @@ pub fn facets(conn: &Connection, root: &Option<String>) -> rusqlite::Result<Face
         formats: group("ext", "")?,
         with_gps,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn like_escape_metachars() {
+        assert_eq!(like_escape("a%b_c"), "a\\%b\\_c");
+        assert_eq!(like_escape("back\\slash"), "back\\\\slash");
+        assert_eq!(like_escape("plain"), "plain");
+    }
+
+    #[test]
+    fn root_pattern_appends_separator() {
+        // 带/不带尾斜杠都归一化为“目录下”
+        assert_eq!(root_like_pattern("/a/Photos/"), "/a/Photos/%");
+        assert_eq!(root_like_pattern("/a/Photos"), "/a/Photos/%");
+        // 不会误匹配兄弟目录 PhotosBackup（因为多了分隔符）
+        assert!(!root_like_pattern("/a/Photos").contains("PhotosBackup"));
+        // 路径里的元字符被转义
+        assert_eq!(root_like_pattern("/a/p%x"), "/a/p\\%x/%");
+    }
+
+    #[test]
+    fn query_builds_for_empty_filter() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        let res = query(&conn, &Filter::default()).unwrap();
+        assert!(res.is_empty());
+    }
+
+    #[test]
+    fn schema_has_kind_and_duration() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        // facets 依赖 kind 列；能跑通即说明迁移/建表正确
+        let f = facets(&conn, &None).unwrap();
+        assert_eq!(f.total, 0);
+    }
 }

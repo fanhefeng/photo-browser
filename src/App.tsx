@@ -5,10 +5,12 @@ import "./App.css";
 import type { Facets, Filter, Photo } from "./types";
 import { emptyFilter } from "./types";
 import {
+  cancelScan,
   getFacets,
   pickDirectory,
   queryPhotos,
   scanDirectory,
+  videoSupport,
 } from "./api";
 import Toolbar from "./components/Toolbar";
 import Sidebar from "./components/Sidebar";
@@ -23,8 +25,17 @@ export default function App() {
   const [scanning, setScanning] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [videoOk, setVideoOk] = useState(true);
   // 扫描完成后 +1，触发重新查询（避免事件监听里捕获到过期的 refresh）
   const [reloadKey, setReloadKey] = useState(0);
+
+  // —— 启动时检测视频工具是否可用 ——
+  useEffect(() => {
+    videoSupport()
+      .then(setVideoOk)
+      .catch(() => setVideoOk(true));
+  }, []);
 
   // —— 监听扫描进度事件 ——
   useEffect(() => {
@@ -56,14 +67,16 @@ export default function App() {
         ]);
         setPhotos(list);
         setFacets(fc);
+        setError(null);
       } catch (e) {
-        console.error("查询照片失败", e);
+        setError(`加载照片失败：${e}`);
       }
     }, 120);
   }, [filter, rootPath]);
 
   useEffect(() => {
     if (rootPath) refresh();
+    return () => window.clearTimeout(debounceRef.current);
   }, [filter, rootPath, refresh, reloadKey]);
 
   // —— 选目录并扫描 ——
@@ -80,10 +93,11 @@ export default function App() {
   };
 
   const startScan = (dir: string) => {
+    setError(null);
     setScanning(true);
     setProgress({ done: 0, total: 0 });
     scanDirectory(dir).catch((err) => {
-      console.error(err);
+      setError(`扫描失败：${err}`);
       setScanning(false);
       setProgress(null);
     });
@@ -100,9 +114,19 @@ export default function App() {
         onChange={patchFilter}
         onOpen={handleOpen}
         onRescan={() => rootPath && startScan(rootPath)}
+        onCancel={cancelScan}
         scanning={scanning}
         progress={progress}
       />
+
+      {!videoOk && (
+        <Banner
+          tone="warn"
+          text="未检测到 ffmpeg / ffprobe，视频将无法生成封面与元数据。可通过 Homebrew 安装：brew install ffmpeg"
+          onDismiss={() => setVideoOk(true)}
+        />
+      )}
+      {error && <Banner tone="error" text={error} onDismiss={() => setError(null)} />}
 
       {rootPath ? (
         <div className="body">
@@ -127,6 +151,25 @@ export default function App() {
   );
 }
 
+function Banner({
+  tone,
+  text,
+  onDismiss,
+}: {
+  tone: "warn" | "error";
+  text: string;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className={`banner banner--${tone}`} role="alert">
+      <span className="banner__text">{text}</span>
+      <button className="banner__close" onClick={onDismiss} aria-label="关闭提示">
+        ✕
+      </button>
+    </div>
+  );
+}
+
 function Welcome({ onOpen }: { onOpen: () => void }) {
   return (
     <div className="welcome">
@@ -135,7 +178,7 @@ function Welcome({ onOpen }: { onOpen: () => void }) {
         <p>
           打开一个本地文件夹，自动解析 EXIF、生成缩略图，
           <br />
-          支持按时间 / 相机 / 镜头 / 格式 / 定位多维度检索。
+          支持照片与视频，按时间 / 相机 / 镜头 / 格式 / 定位多维度检索。
         </p>
         <button className="btn btn--primary btn--lg" onClick={onOpen}>
           打开文件夹

@@ -1,5 +1,5 @@
-import { forwardRef } from "react";
-import { VirtuosoGrid } from "react-virtuoso";
+import { forwardRef, useCallback } from "react";
+import { VirtuosoGrid, type GridComponents } from "react-virtuoso";
 import type { Photo } from "../types";
 import { thumbUrl } from "../api";
 import { formatDateShort, formatDuration } from "../utils";
@@ -9,17 +9,66 @@ interface Props {
   onSelect: (index: number) => void;
 }
 
-// Virtuoso 需要稳定的容器组件来承载 grid 布局
-const List = forwardRef<HTMLDivElement, any>(({ className, ...props }, ref) => (
-  <div ref={ref} {...props} className={`grid ${className ?? ""}`} />
-));
-List.displayName = "GridList";
-
-const Item = ({ className, ...props }: any) => (
-  <div {...props} className={`grid__item ${className ?? ""}`} />
-);
+// Virtuoso 需要稳定的容器组件来承载 grid 布局（用库的类型，避免 any）
+const gridComponents: GridComponents = {
+  List: forwardRef(({ style, children, className }, ref) => (
+    <div
+      ref={ref as React.Ref<HTMLDivElement>}
+      style={style}
+      className={`grid ${className ?? ""}`.trim()}
+    >
+      {children}
+    </div>
+  )),
+  Item: ({ children, ...props }) => (
+    <div {...props} className="grid__item">
+      {children}
+    </div>
+  ),
+};
 
 export default function PhotoGrid({ photos, onSelect }: Props) {
+  const itemContent = useCallback(
+    (index: number) => {
+      const p = photos[index];
+      if (!p) return null;
+      return (
+        <button
+          className="cell"
+          onClick={() => onSelect(index)}
+          title={p.filename}
+          aria-label={`查看 ${p.filename}`}
+        >
+          <img
+            className="cell__img"
+            src={thumbUrl(p.id)}
+            alt={p.filename}
+            loading="lazy"
+            draggable={false}
+            onError={(e) => e.currentTarget.classList.add("cell__img--broken")}
+          />
+          {p.kind === "video" && (
+            <>
+              <span className="cell__play" aria-hidden>
+                <svg viewBox="0 0 24 24" width="20" height="20">
+                  <path d="M8 5v14l11-7z" fill="currentColor" />
+                </svg>
+              </span>
+              {p.duration ? (
+                <span className="cell__duration">{formatDuration(p.duration)}</span>
+              ) : null}
+            </>
+          )}
+          <div className="cell__overlay">
+            <span className="cell__name">{p.filename}</span>
+            <span className="cell__date">{formatDateShort(p.taken_at)}</span>
+          </div>
+        </button>
+      );
+    },
+    [photos, onSelect]
+  );
+
   if (photos.length === 0) {
     return (
       <div className="grid-empty">
@@ -33,37 +82,8 @@ export default function PhotoGrid({ photos, onSelect }: Props) {
       className="grid-scroller"
       totalCount={photos.length}
       overscan={600}
-      components={{ List, Item }}
-      itemContent={(index) => {
-        const p = photos[index];
-        return (
-          <button className="cell" onClick={() => onSelect(index)} title={p.filename}>
-            <img
-              className="cell__img"
-              src={thumbUrl(p.id)}
-              alt={p.filename}
-              loading="lazy"
-              draggable={false}
-            />
-            {p.kind === "video" && (
-              <>
-                <span className="cell__play" aria-hidden>
-                  <svg viewBox="0 0 24 24" width="20" height="20">
-                    <path d="M8 5v14l11-7z" fill="currentColor" />
-                  </svg>
-                </span>
-                {p.duration ? (
-                  <span className="cell__duration">{formatDuration(p.duration)}</span>
-                ) : null}
-              </>
-            )}
-            <div className="cell__overlay">
-              <span className="cell__name">{p.filename}</span>
-              <span className="cell__date">{formatDateShort(p.taken_at)}</span>
-            </div>
-          </button>
-        );
-      }}
+      components={gridComponents}
+      itemContent={itemContent}
     />
   );
 }

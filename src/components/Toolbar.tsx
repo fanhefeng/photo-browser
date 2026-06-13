@@ -6,6 +6,7 @@ interface Props {
   onChange: (patch: Partial<Filter>) => void;
   onOpen: () => void;
   onRescan: () => void;
+  onCancel: () => void;
   scanning: boolean;
   progress: { done: number; total: number } | null;
 }
@@ -25,6 +26,7 @@ export default function Toolbar({
   onChange,
   onOpen,
   onRescan,
+  onCancel,
   scanning,
   progress,
 }: Props) {
@@ -59,6 +61,9 @@ export default function Toolbar({
           <span className="toolbar__progress-text">
             {progress.done}/{progress.total}
           </span>
+          <button className="btn btn--sm" onClick={onCancel}>
+            取消
+          </button>
         </div>
       ) : (
         <div className="toolbar__right">

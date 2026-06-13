@@ -12,6 +12,16 @@ function toggle<T>(arr: T[], v: T): T[] {
   return arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
 }
 
+interface SectionConfig {
+  key: string;
+  title: string;
+  items: FacetItem[];
+  selected: string[];
+  onToggle: (value: string) => void;
+  labelFmt?: (value: string) => string;
+  show?: boolean;
+}
+
 export default function Sidebar({ facets, filter, onChange }: Props) {
   if (!facets) {
     return <aside className="sidebar sidebar--empty">尚未加载照片</aside>;
@@ -26,7 +36,48 @@ export default function Sidebar({ facets, filter, onChange }: Props) {
     (filter.has_gps ? 1 : 0) +
     (filter.text ? 1 : 0);
 
-  const kindLabel = (v: string) => (v === "video" ? "视频" : "照片");
+  // 各筛选维度统一用配置驱动，避免重复 JSX
+  const sections: SectionConfig[] = [
+    {
+      key: "kinds",
+      title: "类型",
+      items: facets.kinds,
+      selected: filter.kinds,
+      onToggle: (v) => onChange({ kinds: toggle(filter.kinds, v) }),
+      labelFmt: (v) => (v === "video" ? "视频" : "照片"),
+      show: facets.kinds.length > 1,
+    },
+    {
+      key: "years",
+      title: "拍摄时间",
+      items: facets.years,
+      selected: filter.years.map(String),
+      onToggle: (v) => onChange({ years: toggle(filter.years, Number(v)) }),
+      labelFmt: (v) => `${v} 年`,
+    },
+    {
+      key: "cameras",
+      title: "相机",
+      items: facets.cameras,
+      selected: filter.cameras,
+      onToggle: (v) => onChange({ cameras: toggle(filter.cameras, v) }),
+    },
+    {
+      key: "lenses",
+      title: "镜头",
+      items: facets.lenses,
+      selected: filter.lenses,
+      onToggle: (v) => onChange({ lenses: toggle(filter.lenses, v) }),
+    },
+    {
+      key: "formats",
+      title: "格式",
+      items: facets.formats,
+      selected: filter.formats,
+      onToggle: (v) => onChange({ formats: toggle(filter.formats, v) }),
+      labelFmt: (v) => v.toUpperCase(),
+    },
+  ];
 
   return (
     <aside className="sidebar">
@@ -41,6 +92,7 @@ export default function Sidebar({ facets, filter, onChange }: Props) {
                 cameras: [],
                 lenses: [],
                 formats: [],
+                kinds: [],
                 has_gps: false,
                 text: "",
               })
@@ -51,41 +103,18 @@ export default function Sidebar({ facets, filter, onChange }: Props) {
         )}
       </div>
 
-      {facets.kinds.length > 1 && (
-        <Section
-          title="类型"
-          items={facets.kinds}
-          selected={filter.kinds}
-          onToggle={(v) => onChange({ kinds: toggle(filter.kinds, v) })}
-          labelFmt={kindLabel}
-        />
-      )}
-      <Section
-        title="拍摄时间"
-        items={facets.years}
-        selected={filter.years.map(String)}
-        onToggle={(v) => onChange({ years: toggle(filter.years, Number(v)) })}
-        labelFmt={(v) => `${v} 年`}
-      />
-      <Section
-        title="相机"
-        items={facets.cameras}
-        selected={filter.cameras}
-        onToggle={(v) => onChange({ cameras: toggle(filter.cameras, v) })}
-      />
-      <Section
-        title="镜头"
-        items={facets.lenses}
-        selected={filter.lenses}
-        onToggle={(v) => onChange({ lenses: toggle(filter.lenses, v) })}
-      />
-      <Section
-        title="格式"
-        items={facets.formats}
-        selected={filter.formats}
-        onToggle={(v) => onChange({ formats: toggle(filter.formats, v) })}
-        labelFmt={(v) => v.toUpperCase()}
-      />
+      {sections
+        .filter((s) => s.show !== false)
+        .map((s) => (
+          <Section
+            key={s.key}
+            title={s.title}
+            items={s.items}
+            selected={s.selected}
+            onToggle={s.onToggle}
+            labelFmt={s.labelFmt}
+          />
+        ))}
 
       <div className="facet">
         <label className="facet__row facet__row--toggle">
