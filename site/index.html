@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>照片浏览器 · Photo Browser</title>
+  <meta name="description" content="本地优先的桌面照片/视频浏览器。打开目录即自动解析 EXIF、生成缩略图，按时间、相机、格式、定位智能分类，丝滑看图。文件不上传，隐私留在本机。" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'%3E%3Crect x='22' y='28' width='52' height='44' rx='8' transform='rotate(-9 48 48)' fill='%23fff' stroke='%23d2d2d7' stroke-width='3'/%3E%3Crect x='24' y='30' width='52' height='44' rx='8' fill='%23f5f5f7' stroke='%23a1a1a6' stroke-width='3'/%3E%3Ccircle cx='39' cy='45' r='6' fill='%23007aff'/%3E%3Cpath d='M28 66 L44 50 L54 60 L62 52 L72 66' stroke='%236e6e73' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <style>
+    :root {
+      --bg: #fbfbfd;
+      --surface: #ffffff;
+      --text: #1d1d1f;
+      --text-dim: #6e6e73;
+      --accent: #007aff;
+      --accent-hover: #0071e3;
+      --border: rgba(0, 0, 0, 0.08);
+      --shadow: 0 1px 2px rgba(0,0,0,.04), 0 12px 40px rgba(0,0,0,.08);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.5;
+    }
+    a { color: inherit; text-decoration: none; }
+
+    /* —— Hero —— */
+    .hero {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 96px 24px 72px;
+      text-align: center;
+    }
+    .glyph {
+      width: 108px; height: 108px;
+      margin: 0 auto 32px;
+      filter: drop-shadow(0 10px 24px rgba(0,0,0,.1));
+    }
+    .hero h1 {
+      font-size: clamp(40px, 7vw, 68px);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.05;
+    }
+    .hero .tagline {
+      margin-top: 18px;
+      font-size: clamp(18px, 2.4vw, 23px);
+      color: var(--text-dim);
+      max-width: 640px;
+      margin-left: auto; margin-right: auto;
+    }
+    .cta {
+      margin-top: 40px;
+      display: flex; gap: 14px; justify-content: center; flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex; align-items: center; gap: 9px;
+      height: 52px; padding: 0 28px;
+      border-radius: 980px;
+      font-size: 17px; font-weight: 500;
+      transition: background .2s, transform .15s, box-shadow .2s;
+    }
+    .btn-primary {
+      background: var(--accent); color: #fff;
+      box-shadow: 0 6px 20px rgba(0,122,255,.28);
+    }
+    .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+    .btn-ghost {
+      background: var(--surface); color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover { background: #f0f0f2; }
+    .platform-note {
+      margin-top: 18px; font-size: 13px; color: var(--text-dim);
+    }
+
+    /* —— 特性 —— */
+    .features {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 24px 24px 96px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 20px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 30px 28px;
+      box-shadow: var(--shadow);
+    }
+    .card .icon { font-size: 0; margin-bottom: 16px; }
+    .card .icon svg { width: 30px; height: 30px; stroke: var(--accent); }
+    .card h3 { font-size: 19px; font-weight: 600; margin-bottom: 8px; }
+    .card p { font-size: 15px; color: var(--text-dim); }
+
+    /* —— 安装说明 —— */
+    .install {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 0 24px 96px;
+    }
+    .install-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 34px 32px;
+      box-shadow: var(--shadow);
+    }
+    .install-box h2 { font-size: 24px; font-weight: 700; margin-bottom: 18px; letter-spacing: -0.01em; }
+    .install-box ol { padding-left: 22px; color: var(--text-dim); font-size: 15.5px; }
+    .install-box li { margin-bottom: 10px; }
+    .install-box code {
+      background: #f0f0f2; padding: 2px 7px; border-radius: 6px;
+      font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 13.5px; color: var(--text);
+    }
+    .install-box .req { margin-top: 16px; font-size: 13.5px; color: var(--text-dim); }
+
+    /* —— Footer —— */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 40px 24px;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 13.5px;
+    }
+    footer a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <svg class="glyph" viewBox="0 0 96 96" fill="none" aria-hidden="true">
+      <rect x="22" y="28" width="52" height="44" rx="8" transform="rotate(-9 48 48)" fill="#fff" stroke="#d2d2d7" stroke-width="2.5"/>
+      <rect x="24" y="30" width="52" height="44" rx="8" fill="#f5f5f7" stroke="#a1a1a6" stroke-width="2.5"/>
+      <circle cx="39" cy="45" r="6" fill="#007aff"/>
+      <path d="M28 66 L44 50 L54 60 L62 52 L72 66" stroke="#6e6e73" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <h1>照片浏览器</h1>
+    <p class="tagline">本地优先的桌面照片 / 视频浏览器。打开文件夹即自动解析 EXIF、生成缩略图，按时间、相机、格式、定位智能分类，丝滑看图。文件不上传，隐私留在本机。</p>
+    <div class="cta">
+      <a class="btn btn-primary" href="https://github.com/fanhefeng/photo-browser/releases/latest" target="_blank" rel="noopener">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+        下载 macOS 版
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/fanhefeng/photo-browser" target="_blank" rel="noopener">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.6.5.5 5.6.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 .1.8 1.3 1.7 1.4 1.6.3 2.6-.4 2.9-.7.1-.7.4-1.2.7-1.5-2.5-.3-5.2-1.3-5.2-5.7 0-1.3.4-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.9 18.3 5.2 18.3 5.2c.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.2 5.7.4.3.8 1 .8 2.1v3.1c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.6 18.4.5 12 .5z"/></svg>
+        GitHub
+      </a>
+    </div>
+    <p class="platform-note">macOS · 需要 macOS 11+ · 视频功能需 <code style="background:#f0f0f2;padding:1px 6px;border-radius:5px;font-size:12.5px">ffmpeg</code></p>
+  </header>
+
+  <main>
+    <section class="features">
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg></div>
+        <h3>智能分类筛选</h3>
+        <p>按类型、拍摄时间、相机品牌、格式、定位自动分组。点一下即看，缺失信息归「未知」也能筛。</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+        <h3>原图清晰度</h3>
+        <p>大图直读原文件呈现原始清晰度；HEIC/TIFF 等懒生成高分辨率预览，滚轮缩放以光标为锚，最高 8×。</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg></div>
+        <h3>照片 + 视频</h3>
+        <p>递归扫描，照片识别 JPG/PNG/HEIC 等，视频识别 MP4/MOV/MKV 等。视频抽帧封面、可播放拖动进度。</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+        <h3>隐私本地优先</h3>
+        <p>所有处理都在本机完成，文件绝不上传任何服务器。索引、缩略图、日志按环境隔离存放。</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
+        <h3>万级不卡</h3>
+        <p>虚拟滚动网格 + 自定义协议缩略图，扫描一次写入 SQLite，之后筛选排序全是数据库查询，丝滑流畅。</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
+        <h3>中英双语</h3>
+        <p>界面与原生菜单中英双语，跟随系统语言自动切换，也可在「语言」菜单手动切换并记住。</p>
+      </div>
+    </section>
+
+    <section class="install">
+      <div class="install-box">
+        <h2>安装说明</h2>
+        <ol>
+          <li>从上方<a href="https://github.com/fanhefeng/photo-browser/releases/latest" style="color:var(--accent)">下载</a> <code>.dmg</code>，拖入「应用程序」。</li>
+          <li>本应用<strong>未经 Apple 公证签名</strong>，首次打开请<strong>右键点击图标 → 打开</strong>，在弹窗里再点「打开」以绕过 Gatekeeper（之后双击即可）。</li>
+          <li>视频封面与元数据依赖 <code>ffmpeg</code>，可用 Homebrew 安装：<code>brew install ffmpeg</code>（未装不影响照片功能）。</li>
+        </ol>
+        <p class="req">系统要求：macOS 11 Big Sur 及以上。HEIC/HEIF 解码使用系统自带 <code>sips</code>。</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>开源于 <a href="https://github.com/fanhefeng/photo-browser" target="_blank" rel="noopener">GitHub</a> · Tauri 2 + React + Rust · MIT 许可</p>
+  </footer>
+</body>
+</html>
