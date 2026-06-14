@@ -1,5 +1,6 @@
 import { forwardRef, useCallback } from "react";
 import { VirtuosoGrid, type GridComponents } from "react-virtuoso";
+import { useTranslation } from "react-i18next";
 import type { MediaItem } from "../types";
 import { thumbUrl } from "../api";
 import { formatDateShort, formatDuration } from "../utils";
@@ -28,6 +29,7 @@ const gridComponents: GridComponents = {
 };
 
 export default function PhotoGrid({ photos, onSelect }: Props) {
+  const { t } = useTranslation();
   const itemContent = useCallback(
     (index: number) => {
       const p = photos[index];
@@ -37,7 +39,7 @@ export default function PhotoGrid({ photos, onSelect }: Props) {
           className="cell"
           onClick={() => onSelect(index)}
           title={p.filename}
-          aria-label={`查看 ${p.filename}`}
+          aria-label={t("grid.view", { name: p.filename })}
         >
           <img
             className="cell__img"
@@ -66,14 +68,14 @@ export default function PhotoGrid({ photos, onSelect }: Props) {
         </button>
       );
     },
-    [photos, onSelect]
+    [photos, onSelect, t]
   );
 
   if (photos.length === 0) {
     return (
       <div className="grid-empty">
-        <p className="grid-empty__title">没有符合条件的照片</p>
-        <span className="grid-empty__hint">试试切换左侧分类，或点「显示全部」</span>
+        <p className="grid-empty__title">{t("grid.empty")}</p>
+        <span className="grid-empty__hint">{t("grid.emptyHint")}</span>
       </div>
     );
   }

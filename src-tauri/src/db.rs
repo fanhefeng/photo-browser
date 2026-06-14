@@ -316,19 +316,18 @@ pub fn get_one(conn: &Connection, id: &str) -> rusqlite::Result<Option<MediaItem
     }
 }
 
-/// 一个分类项：稳定 key（用于过滤）+ 展示用中文标签 + 数量
+/// 一个分类项：稳定 key（用于过滤 + 前端 i18n 翻译）+ 数量。
+/// 维度标题与分类标签的展示文案由前端按 key 翻译，后端不再产出中文。
 #[derive(Serialize)]
 pub struct FacetItem {
     pub key: String,
-    pub label: String,
     pub count: i64,
 }
 
-/// 一个分组维度：维度标识 + 中文标题 + 其下各分类
+/// 一个分组维度：维度标识 + 其下各分类（按语义/数量已排序）
 #[derive(Serialize)]
 pub struct FacetGroup {
     pub dim: String,
-    pub title: String,
     pub items: Vec<FacetItem>,
 }
 
@@ -342,18 +341,6 @@ pub struct Facets {
 /// 参与分组查看的维度，按侧边栏展示顺序排列。
 const FACET_DIMS: &[&str] = &["kind", "year", "camera", "format", "gps"];
 
-/// 维度的中文标题
-fn dim_title(dim: &str) -> &'static str {
-    match dim {
-        "kind" => "类型",
-        "year" => "拍摄时间",
-        "camera" => "相机",
-        "format" => "格式",
-        "gps" => "定位",
-        _ => "",
-    }
-}
-
 /// 枚举型维度的固定语义顺序（数值/类别桶按此排，而非按数量）。
 /// year / camera 不在此列——它们按数据（年份/数量）排序。
 fn dim_order(dim: &str) -> Option<&'static [&'static str]> {
@@ -363,33 +350,6 @@ fn dim_order(dim: &str) -> Option<&'static [&'static str]> {
         "gps" => &["has", "none"],
         _ => return None,
     })
-}
-
-/// 某维度下某分类 key 的中文展示标签。
-fn dim_label(dim: &str, key: &str) -> String {
-    let unknown = "未知".to_string();
-    match dim {
-        "kind" => if key == "video" { "视频" } else { "照片" }.to_string(),
-        "year" => if key == "unknown" { unknown } else { format!("{key} 年") },
-        "camera" => if key == "unknown" { unknown } else { key.to_string() },
-        "format" => match key {
-            "raw" => "RAW",
-            "jpeg" => "JPEG",
-            "heic" => "HEIC",
-            "png" => "PNG",
-            "video" => "视频",
-            "other" => "其它",
-            _ => key,
-        }
-        .to_string(),
-        "gps" => match key {
-            "has" => "有定位",
-            "none" => "无定位",
-            _ => "未知",
-        }
-        .to_string(),
-        _ => key.to_string(),
-    }
 }
 
 /// 计算各维度的分类统计。受 root 限制，但不受当前分组选择影响——
@@ -458,13 +418,11 @@ pub fn facets(conn: &Connection, root: &Option<String>) -> rusqlite::Result<Face
             .iter()
             .map(|k| FacetItem {
                 key: k.clone(),
-                label: dim_label(dim, k),
                 count: *map.get(k).unwrap_or(&0),
             })
             .collect();
         groups.push(FacetGroup {
             dim: dim.to_string(),
-            title: dim_title(dim).to_string(),
             items,
         });
     }
@@ -582,7 +540,7 @@ mod tests {
         let cam = f.groups.iter().find(|g| g.dim == "camera").unwrap();
         let keys: Vec<&str> = cam.items.iter().map(|i| i.key.as_str()).collect();
         assert_eq!(keys, vec!["Apple", "unknown"]);
-        assert_eq!(cam.items.last().unwrap().label, "未知");
+        assert_eq!(cam.items.last().unwrap().key, "unknown");
 
         // 过滤“相机未知”应只命中没有品牌的那张
         let unknown = query(

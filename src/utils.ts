@@ -1,4 +1,5 @@
 // 展示用的格式化辅助
+import i18n from "./i18n";
 
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -13,7 +14,7 @@ export function formatSize(bytes: number): string {
 }
 
 export function formatDate(unixSec: number | null): string {
-  if (!unixSec) return "未知时间";
+  if (!unixSec) return i18n.t("common.unknownTime");
   const d = new Date(unixSec * 1000);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(
@@ -22,7 +23,7 @@ export function formatDate(unixSec: number | null): string {
 }
 
 export function formatDateShort(unixSec: number | null): string {
-  if (!unixSec) return "未知";
+  if (!unixSec) return i18n.t("common.unknown");
   const d = new Date(unixSec * 1000);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;

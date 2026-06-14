@@ -46,7 +46,8 @@ async fn scan_directory(app: AppHandle, path: String) -> Result<usize, String> {
     {
         let state = app.state::<AppState>();
         if state.scanning.swap(true, Ordering::SeqCst) {
-            return Err("已有扫描正在进行，请稍候".into());
+            // 返回 i18n key，前端按当前语言翻译
+            return Err("backend.scanInProgress".into());
         }
         state.cancel.store(false, Ordering::SeqCst);
     }
@@ -97,7 +98,7 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
     // 守卫：root 必须是目录。否则没有路径以 "<root>/" 开头，
     // purge_outside_root 会把整库都当作“目录外”删光。
     if !Path::new(&root).is_dir() {
-        return Err("所选路径不是有效目录".into());
+        return Err("backend.notDirectory".into());
     }
     let cancel = app.state::<AppState>().cancel.clone();
     let mut conn = db::open().map_err(|e| {
@@ -269,6 +270,48 @@ fn reveal_in_finder(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 菜单项的中/英文案（locale = "en" 取英文，否则中文）。
+fn menu_label(key: &str, locale: &str) -> &'static str {
+    let en = locale == "en";
+    match key {
+        "dirs" => if en { "Folders" } else { "目录" },
+        "open_data" => if en { "Open Data Folder" } else { "打开数据目录" },
+        "open_cache" => if en { "Open Cache Folder" } else { "打开缓存目录" },
+        "open_logs" => if en { "Open Logs Folder" } else { "打开日志目录" },
+        "open_devtools" => if en { "Open DevTools" } else { "打开调试控制台" },
+        _ => "",
+    }
+}
+
+/// 按当前语言构建原生菜单（默认菜单 + “目录”子菜单 + 仅 dev 的调试入口）。
+fn build_menu<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    locale: &str,
+) -> tauri::Result<Menu<R>> {
+    let menu = Menu::default(app)?;
+    let l = |k: &str| menu_label(k, locale);
+    let open_data = MenuItem::with_id(app, "open_data", l("open_data"), true, None::<&str>)?;
+    let open_cache = MenuItem::with_id(app, "open_cache", l("open_cache"), true, None::<&str>)?;
+    let open_logs = MenuItem::with_id(app, "open_logs", l("open_logs"), true, None::<&str>)?;
+    let dirs = Submenu::with_items(app, l("dirs"), true, &[&open_data, &open_cache, &open_logs])?;
+    menu.append(&dirs)?;
+    #[cfg(debug_assertions)]
+    {
+        let devtools =
+            MenuItem::with_id(app, "open_devtools", l("open_devtools"), true, None::<&str>)?;
+        menu.append(&devtools)?;
+    }
+    Ok(menu)
+}
+
+/// 前端切换语言后调用：按新语言重建原生菜单。
+#[tauri::command]
+fn set_locale(app: AppHandle, lang: String) -> Result<(), String> {
+    let menu = build_menu(&app, &lang).map_err(|e| e.to_string())?;
+    app.set_menu(menu).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// 注册一个读取缓存图片目录的自定义协议处理器。
 /// `scheme://localhost/<id>.jpg` 会被映射到 `dir/<id>.jpg` 并以 image/jpeg 返回。
 fn image_protocol<R: tauri::Runtime>(
@@ -333,22 +376,9 @@ pub fn run() {
                 .traffic_light_position(LogicalPosition::new(20.0, 22.0))
                 .build()?;
 
-            // 原生菜单栏：在默认菜单（含 退出/复制/粘贴 等）基础上追加“目录”子菜单
-            let h = app.handle().clone();
-            let menu = Menu::default(&h)?;
-            let open_data = MenuItem::with_id(&h, "open_data", "打开数据目录", true, None::<&str>)?;
-            let open_cache =
-                MenuItem::with_id(&h, "open_cache", "打开缓存目录", true, None::<&str>)?;
-            let open_logs = MenuItem::with_id(&h, "open_logs", "打开日志目录", true, None::<&str>)?;
-            let dirs = Submenu::with_items(&h, "目录", true, &[&open_data, &open_cache, &open_logs])?;
-            menu.append(&dirs)?;
-            // 仅 dev 注册调试控制台入口；prod 构建不出现该菜单项
-            #[cfg(debug_assertions)]
-            {
-                let devtools =
-                    MenuItem::with_id(&h, "open_devtools", "打开调试控制台", true, None::<&str>)?;
-                menu.append(&devtools)?;
-            }
+            // 原生菜单栏：默认菜单 + “目录”子菜单（+ dev 调试入口），按语言构建。
+            // 启动先用中文，前端 ready 后通过 set_locale 同步到实际语言。
+            let menu = build_menu(&app.handle().clone(), "zh")?;
             app.set_menu(menu)?;
             app.on_menu_event(|_app, event| {
                 #[cfg(debug_assertions)]
@@ -380,6 +410,7 @@ pub fn run() {
             get_photo,
             ensure_preview,
             reveal_in_finder,
+            set_locale,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

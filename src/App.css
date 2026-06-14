@@ -588,10 +588,14 @@ body {
   z-index: 1;
 }
 
-/* 空状态顶部拖动条：透明，仅容纳红绿灯并可拖动窗口（红绿灯区除外） */
+/* 空状态顶部拖动条：透明，容纳红绿灯与右侧语言切换，其余区域可拖动窗口 */
 .dragbar {
   flex: 0 0 38px;
   cursor: default;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 12px;
 }
 
 /* —————————————— 欢迎页 —————————————— */

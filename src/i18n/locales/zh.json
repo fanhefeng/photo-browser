@@ -1,0 +1,104 @@
+{
+  "welcome": {
+    "title": "本地照片浏览器",
+    "desc": "选一个文件夹，自动读取 EXIF、生成缩略图，按时间、相机、格式、定位分组浏览。",
+    "open": "打开文件夹",
+    "formats": "支持 JPG · HEIC · RAW · MP4 等常见格式"
+  },
+  "toolbar": {
+    "open": "打开",
+    "openTitle": "打开其它文件夹",
+    "rescan": "重新扫描",
+    "searchPlaceholder": "按文件名搜索…",
+    "cancel": "取消",
+    "sortAsc": "升序",
+    "sortDesc": "降序",
+    "language": "语言"
+  },
+  "sort": {
+    "taken_at": "拍摄时间",
+    "filename": "文件名",
+    "file_size": "文件大小",
+    "width": "分辨率",
+    "iso": "ISO",
+    "focal_length": "焦距"
+  },
+  "sidebar": {
+    "notLoaded": "尚未加载照片",
+    "count_other": "{{count}} 张",
+    "showAll": "显示全部"
+  },
+  "facet": {
+    "dim": {
+      "kind": "类型",
+      "year": "拍摄时间",
+      "camera": "相机",
+      "format": "格式",
+      "gps": "定位"
+    },
+    "kind": { "photo": "照片", "video": "视频" },
+    "format": {
+      "raw": "RAW",
+      "jpeg": "JPEG",
+      "heic": "HEIC",
+      "png": "PNG",
+      "video": "视频",
+      "other": "其它"
+    },
+    "gps": { "has": "有定位", "none": "无定位" },
+    "year": "{{year}} 年",
+    "unknown": "未知"
+  },
+  "grid": {
+    "empty": "没有符合条件的照片",
+    "emptyHint": "试试切换左侧分类，或点「显示全部」",
+    "view": "查看 {{name}}"
+  },
+  "lightbox": {
+    "prev": "上一张",
+    "next": "下一张",
+    "videoError": "无法播放该视频",
+    "videoErrorSub": "可能是编码不受 WebView 支持（如部分 MOV/HEVC）",
+    "zoomOut": "缩小",
+    "zoomIn": "放大",
+    "fit": "适应屏幕"
+  },
+  "detail": {
+    "field": {
+      "taken_at": "拍摄时间",
+      "dims": "尺寸",
+      "duration": "时长",
+      "size": "大小",
+      "format": "格式",
+      "camera": "相机",
+      "lens": "镜头",
+      "aperture": "光圈",
+      "shutter": "快门",
+      "iso": "ISO",
+      "focal_length": "焦距",
+      "gps": "定位"
+    },
+    "noParams": "无拍摄参数",
+    "video": "视频",
+    "reveal": "在访达中显示",
+    "close": "关闭 (Esc)"
+  },
+  "banner": {
+    "ffmpegMissing": "未检测到 ffmpeg / ffprobe，视频将无法生成封面与元数据。可通过 Homebrew 安装：brew install ffmpeg",
+    "close": "关闭提示"
+  },
+  "error": {
+    "loadFailed": "加载照片失败：{{msg}}",
+    "scanFailed": "扫描失败：{{msg}}",
+    "filesUnprocessed": "{{count}} 个文件未能处理（详情见日志目录）"
+  },
+  "common": {
+    "dash": "—",
+    "unknown": "未知",
+    "unknownTime": "未知时间"
+  },
+  "backend": {
+    "scanInProgress": "已有扫描正在进行，请稍候",
+    "notDirectory": "所选路径不是有效目录"
+  }
+}

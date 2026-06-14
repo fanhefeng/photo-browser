@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useTranslation } from "react-i18next";
+import i18n from "./i18n";
 import "./App.css";
 
 import type { Facets, Filter, MediaItem } from "./types";
@@ -12,6 +14,7 @@ import {
   pickDirectory,
   queryPhotos,
   scanDirectory,
+  setLocale,
   videoSupport,
 } from "./api";
 import Toolbar from "./components/Toolbar";
@@ -19,8 +22,10 @@ import Sidebar from "./components/Sidebar";
 import PhotoGrid from "./components/PhotoGrid";
 import Lightbox from "./components/Lightbox";
 import { FolderIcon, GalleryGlyph } from "./components/icons";
+import LangSwitch from "./components/LangSwitch";
 
 export default function App() {
+  const { t } = useTranslation();
   const [rootPath, setRootPath] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>(emptyFilter());
   const [photos, setPhotos] = useState<MediaItem[]>([]);
@@ -52,6 +57,8 @@ export default function App() {
         )
       )
       .catch(() => {});
+    // 同步实际语言给后端，让原生菜单跟随
+    setLocale(i18n.language.startsWith("zh") ? "zh" : "en").catch(() => {});
   }, []);
 
   // —— 监听扫描进度事件 ——
@@ -74,7 +81,7 @@ export default function App() {
       // 取消时不提示失败数（取消的扫描本就不完整）
       setNotice(
         !cancelled && failed > 0
-          ? `${failed} 个文件未能处理（详情见日志目录）`
+          ? i18n.t("error.filesUnprocessed", { count: failed })
           : null
       );
     });
@@ -104,7 +111,7 @@ export default function App() {
         setError(null);
       } catch (e) {
         if (myId !== reqIdRef.current) return;
-        setError(`加载照片失败：${e}`);
+        setError(i18n.t("error.loadFailed", { msg: String(e) }));
       }
     }, 120);
   }, [filter, rootPath]);
@@ -133,7 +140,8 @@ export default function App() {
     setScanning(true);
     setProgress({ done: 0, total: 0 });
     scanDirectory(dir).catch((err) => {
-      setError(`扫描失败：${err}`);
+      // err 可能是后端返回的 i18n key（如 backend.notDirectory），t() 命中则翻译、否则原样
+      setError(i18n.t("error.scanFailed", { msg: i18n.t(String(err)) }));
       setScanning(false);
       setProgress(null);
     });
@@ -179,18 +187,24 @@ export default function App() {
         <div
           className="dragbar"
           onMouseDown={(e) => {
-            // 排除左侧红绿灯区域（offsetX ≤ 80），其余可拖动窗口
-            if (e.buttons === 1 && e.nativeEvent.offsetX > 80) {
+            // 排除左侧红绿灯区域（offsetX ≤ 80）和子元素（语言切换），其余可拖动窗口
+            if (
+              e.target === e.currentTarget &&
+              e.buttons === 1 &&
+              e.nativeEvent.offsetX > 80
+            ) {
               void getCurrentWindow().startDragging();
             }
           }}
-        />
+        >
+          <LangSwitch />
+        </div>
       )}
 
       {!videoOk && (
         <Banner
           tone="warn"
-          text="未检测到 ffmpeg / ffprobe，视频将无法生成封面与元数据。可通过 Homebrew 安装：brew install ffmpeg"
+          text={t("banner.ffmpegMissing")}
           onDismiss={() => setVideoOk(true)}
         />
       )}
@@ -238,10 +252,11 @@ function Banner({
   text: string;
   onDismiss: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className={`banner banner--${tone}`} role="alert">
       <span className="banner__text">{text}</span>
-      <button className="banner__close" onClick={onDismiss} aria-label="关闭提示">
+      <button className="banner__close" onClick={onDismiss} aria-label={t("banner.close")}>
         ✕
       </button>
     </div>
@@ -249,18 +264,17 @@ function Banner({
 }
 
 function Welcome({ onOpen }: { onOpen: () => void }) {
+  const { t } = useTranslation();
   return (
     <div className="welcome">
       <GalleryGlyph />
-      <h1 className="welcome__title">本地照片浏览器</h1>
-      <p className="welcome__sub">
-        选一个文件夹，自动读取 EXIF、生成缩略图，按时间、相机、格式、定位分组浏览。
-      </p>
+      <h1 className="welcome__title">{t("welcome.title")}</h1>
+      <p className="welcome__sub">{t("welcome.desc")}</p>
       <button className="btn btn--primary btn--lg" onClick={onOpen}>
         <FolderIcon size={17} />
-        打开文件夹
+        {t("welcome.open")}
       </button>
-      <p className="welcome__hint">支持 JPG · HEIC · RAW · MP4 等常见格式</p>
+      <p className="welcome__hint">{t("welcome.formats")}</p>
     </div>
   );
 }

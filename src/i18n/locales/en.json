@@ -1,0 +1,105 @@
+{
+  "welcome": {
+    "title": "Local Photo Browser",
+    "desc": "Pick a folder to auto-read EXIF, generate thumbnails, and browse by time, camera, format, and location.",
+    "open": "Open Folder",
+    "formats": "Supports JPG · HEIC · RAW · MP4 and more"
+  },
+  "toolbar": {
+    "open": "Open",
+    "openTitle": "Open another folder",
+    "rescan": "Rescan",
+    "searchPlaceholder": "Search by filename…",
+    "cancel": "Cancel",
+    "sortAsc": "Ascending",
+    "sortDesc": "Descending",
+    "language": "Language"
+  },
+  "sort": {
+    "taken_at": "Date taken",
+    "filename": "Filename",
+    "file_size": "File size",
+    "width": "Resolution",
+    "iso": "ISO",
+    "focal_length": "Focal length"
+  },
+  "sidebar": {
+    "notLoaded": "No photos loaded yet",
+    "count_one": "{{count}} photo",
+    "count_other": "{{count}} photos",
+    "showAll": "Show all"
+  },
+  "facet": {
+    "dim": {
+      "kind": "Type",
+      "year": "Date taken",
+      "camera": "Camera",
+      "format": "Format",
+      "gps": "Location"
+    },
+    "kind": { "photo": "Photos", "video": "Videos" },
+    "format": {
+      "raw": "RAW",
+      "jpeg": "JPEG",
+      "heic": "HEIC",
+      "png": "PNG",
+      "video": "Video",
+      "other": "Other"
+    },
+    "gps": { "has": "Geotagged", "none": "No location" },
+    "year": "{{year}}",
+    "unknown": "Unknown"
+  },
+  "grid": {
+    "empty": "No matching photos",
+    "emptyHint": "Try a different category on the left, or click “Show all”",
+    "view": "View {{name}}"
+  },
+  "lightbox": {
+    "prev": "Previous",
+    "next": "Next",
+    "videoError": "Cannot play this video",
+    "videoErrorSub": "The codec may be unsupported by the WebView (e.g. some MOV/HEVC)",
+    "zoomOut": "Zoom out",
+    "zoomIn": "Zoom in",
+    "fit": "Fit to screen"
+  },
+  "detail": {
+    "field": {
+      "taken_at": "Date taken",
+      "dims": "Dimensions",
+      "duration": "Duration",
+      "size": "Size",
+      "format": "Format",
+      "camera": "Camera",
+      "lens": "Lens",
+      "aperture": "Aperture",
+      "shutter": "Shutter",
+      "iso": "ISO",
+      "focal_length": "Focal length",
+      "gps": "Location"
+    },
+    "noParams": "No capture settings",
+    "video": "Video",
+    "reveal": "Reveal in Finder",
+    "close": "Close (Esc)"
+  },
+  "banner": {
+    "ffmpegMissing": "ffmpeg / ffprobe not found. Videos cannot generate posters or metadata. Install via Homebrew: brew install ffmpeg",
+    "close": "Dismiss"
+  },
+  "error": {
+    "loadFailed": "Failed to load photos: {{msg}}",
+    "scanFailed": "Scan failed: {{msg}}",
+    "filesUnprocessed": "{{count}} file(s) could not be processed (see the logs folder)"
+  },
+  "common": {
+    "dash": "—",
+    "unknown": "Unknown",
+    "unknownTime": "Unknown time"
+  },
+  "backend": {
+    "scanInProgress": "A scan is already in progress, please wait",
+    "notDirectory": "The selected path is not a valid directory"
+  }
+}

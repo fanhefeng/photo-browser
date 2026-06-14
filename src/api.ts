@@ -58,6 +58,11 @@ export function revealInFinder(path: string): Promise<void> {
   return invoke("reveal_in_finder", { path });
 }
 
+/** 通知后端当前语言（zh/en），用于重建原生菜单的文案 */
+export function setLocale(lang: string): Promise<void> {
+  return invoke("set_locale", { lang });
+}
+
 /** 缩略图 URL（自定义协议，WebView 原生加载/缓存） */
 export const thumbUrl = (id: string) => `thumb://localhost/${id}.jpg`;
 

@@ -1,4 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useTranslation } from "react-i18next";
 import type { Filter, SortBy } from "../types";
 import {
   ArrowDownIcon,
@@ -7,6 +8,7 @@ import {
   RescanIcon,
   SearchIcon,
 } from "./icons";
+import LangSwitch from "./LangSwitch";
 
 interface Props {
   rootPath: string | null;
@@ -19,15 +21,14 @@ interface Props {
   progress: { done: number; total: number } | null;
 }
 
-const SORT_OPTIONS: { value: SortBy; label: string }[] = [
-  { value: "taken_at", label: "拍摄时间" },
-  { value: "filename", label: "文件名" },
-  { value: "file_size", label: "文件大小" },
-  { value: "width", label: "分辨率" },
-  { value: "iso", label: "ISO" },
-  { value: "focal_length", label: "焦距" },
+const SORT_VALUES: SortBy[] = [
+  "taken_at",
+  "filename",
+  "file_size",
+  "width",
+  "iso",
+  "focal_length",
 ];
-
 
 export default function Toolbar({
   rootPath,
@@ -39,6 +40,7 @@ export default function Toolbar({
   scanning,
   progress,
 }: Props) {
+  const { t } = useTranslation();
   const pct =
     progress && progress.total > 0
       ? Math.round((progress.done / progress.total) * 100)
@@ -62,10 +64,10 @@ export default function Toolbar({
         <button
           className="btn btn--open"
           onClick={onOpen}
-          title="打开其它文件夹"
+          title={t("toolbar.openTitle")}
         >
           <FolderIcon />
-          打开
+          {t("toolbar.open")}
         </button>
         {rootPath && (
           <>
@@ -77,7 +79,7 @@ export default function Toolbar({
               className="btn btn--icon"
               onClick={onRescan}
               disabled={scanning}
-              title="重新扫描"
+              title={t("toolbar.rescan")}
             >
               <RescanIcon className={scanning ? "spin" : undefined} />
             </button>
@@ -94,7 +96,7 @@ export default function Toolbar({
             {progress.done}/{progress.total}
           </span>
           <button className="btn btn--sm" onClick={onCancel}>
-            取消
+            {t("toolbar.cancel")}
           </button>
         </div>
       ) : (
@@ -104,7 +106,7 @@ export default function Toolbar({
             <input
               className="search__input"
               type="search"
-              placeholder="按文件名搜索…"
+              placeholder={t("toolbar.searchPlaceholder")}
               value={filter.text ?? ""}
               onChange={(e) => onChange({ text: e.target.value })}
             />
@@ -115,15 +117,15 @@ export default function Toolbar({
               value={filter.sort_by}
               onChange={(e) => onChange({ sort_by: e.target.value as SortBy })}
             >
-              {SORT_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
+              {SORT_VALUES.map((v) => (
+                <option key={v} value={v}>
+                  {t(`sort.${v}`)}
                 </option>
               ))}
             </select>
             <button
               className="btn btn--icon"
-              title={filter.sort_dir === "desc" ? "降序" : "升序"}
+              title={filter.sort_dir === "desc" ? t("toolbar.sortDesc") : t("toolbar.sortAsc")}
               onClick={() =>
                 onChange({ sort_dir: filter.sort_dir === "desc" ? "asc" : "desc" })
               }
@@ -131,6 +133,7 @@ export default function Toolbar({
               {filter.sort_dir === "desc" ? <ArrowDownIcon /> : <ArrowUpIcon />}
             </button>
           </div>
+          <LangSwitch />
         </div>
       )}
     </header>

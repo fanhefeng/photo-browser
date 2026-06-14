@@ -25,17 +25,15 @@ export interface MediaItem {
   orientation: number | null;
 }
 
-/** 一个分类项：稳定 key（用于过滤）+ 展示标签 + 数量 */
+/** 一个分类项：稳定 key（用于过滤 + 前端 i18n 翻译）+ 数量 */
 export interface FacetItem {
   key: string;
-  label: string;
   count: number;
 }
 
-/** 一个分组维度：维度标识 + 标题 + 其下各分类 */
+/** 一个分组维度：维度标识 + 其下各分类（标题/标签由前端按 key 翻译） */
 export interface FacetGroup {
   dim: string;
-  title: string;
   items: FacetItem[];
 }
 
