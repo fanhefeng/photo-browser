@@ -2,7 +2,7 @@
 
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { Facets, Filter, Photo } from "./types";
+import type { Facets, Filter, MediaItem } from "./types";
 
 /** 弹出系统目录选择框，返回所选目录（取消返回 null） */
 export async function pickDirectory(): Promise<string | null> {
@@ -38,16 +38,16 @@ export function appInfo(): Promise<AppInfo> {
   return invoke<AppInfo>("app_info");
 }
 
-export function queryPhotos(filter: Filter): Promise<Photo[]> {
-  return invoke<Photo[]>("query_photos", { filter });
+export function queryPhotos(filter: Filter): Promise<MediaItem[]> {
+  return invoke<MediaItem[]>("query_photos", { filter });
 }
 
 export function getFacets(root?: string): Promise<Facets> {
   return invoke<Facets>("get_facets", { root: root ?? null });
 }
 
-export function getPhoto(id: string): Promise<Photo | null> {
-  return invoke<Photo | null>("get_photo", { id });
+export function getPhoto(id: string): Promise<MediaItem | null> {
+  return invoke<MediaItem | null>("get_photo", { id });
 }
 
 export function ensurePreview(id: string): Promise<boolean> {

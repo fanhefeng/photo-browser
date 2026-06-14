@@ -14,11 +14,19 @@ const ZOOM_SENSITIVITY = 0.0015;
 /**
  * 大图缩放 + 平移。`resetKey` 变化时（切换照片）自动复位。
  * 返回绑定到舞台容器的事件处理器与当前缩放状态。
+ *
+ * 关键实现：
+ * - 滚轮缩放用**原生 wheel 监听 + {passive:false}**，React 合成事件的 wheel
+ *   是被动监听，其 `preventDefault` 会被忽略，导致放大态下页面穿透滚动。
+ * - 平移的 mousemove/mouseup 挂在 **window** 上，避免放大后鼠标移出舞台丢事件、拖拽“粘手”。
  */
 export function useZoom(resetKey: string) {
   const [zoom, setZoom] = useState<ZoomState>({ scale: 1, x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  // 实时镜像，供事件回调读取最新缩放而不必进依赖数组
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
 
   useEffect(() => {
     setZoom({ scale: 1, x: 0, y: 0 });
@@ -48,40 +56,54 @@ export function useZoom(resetKey: string) {
     [zoomAt]
   );
 
-  const onWheel = useCallback(
-    (e: React.WheelEvent) => {
+  // 原生 wheel 监听：passive:false 才能 preventDefault，阻止放大态下的穿透滚动
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * ZOOM_SENSITIVITY));
-    },
-    [zoomAt]
-  );
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [zoomAt]);
 
   const onDoubleClick = useCallback(
     (e: React.MouseEvent) => {
-      if (zoom.scale > 1) reset();
+      if (zoomRef.current.scale > 1) reset();
       else zoomAt(e.clientX, e.clientY, 2.5);
     },
-    [zoom.scale, zoomAt, reset]
+    [zoomAt, reset]
   );
 
-  const onMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (zoom.scale <= 1) return;
-      e.preventDefault();
-      drag.current = { x: e.clientX, y: e.clientY, ox: zoom.x, oy: zoom.y };
-    },
-    [zoom]
-  );
-  const onMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!drag.current) return;
-    const d = drag.current;
-    setZoom((z) => ({ ...z, x: d.ox + (e.clientX - d.x), y: d.oy + (e.clientY - d.y) }));
-  }, []);
-  const endDrag = useCallback(() => {
-    drag.current = null;
+  // 拖拽平移：mousedown 时在 window 上挂 move/up，越界也不丢事件
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    if (zoomRef.current.scale <= 1) return;
+    e.preventDefault();
+    const start = {
+      x: e.clientX,
+      y: e.clientY,
+      ox: zoomRef.current.x,
+      oy: zoomRef.current.y,
+    };
+    setDragging(true);
+    const onMove = (ev: MouseEvent) => {
+      setZoom((z) => ({
+        ...z,
+        x: start.ox + (ev.clientX - start.x),
+        y: start.oy + (ev.clientY - start.y),
+      }));
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      setDragging(false);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
   }, []);
 
-  const cursor = zoom.scale > 1 ? (drag.current ? "grabbing" : "grab") : "default";
+  const cursor = zoom.scale > 1 ? (dragging ? "grabbing" : "grab") : "default";
 
   return {
     zoom,
@@ -89,12 +111,8 @@ export function useZoom(resetKey: string) {
     setScale,
     reset,
     bind: {
-      onWheel,
       onDoubleClick,
       onMouseDown,
-      onMouseMove,
-      onMouseUp: endDrag,
-      onMouseLeave: endDrag,
       style: { cursor } as React.CSSProperties,
     },
   };

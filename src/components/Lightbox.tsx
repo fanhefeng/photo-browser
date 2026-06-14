@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import type { Photo } from "../types";
+import { useEffect, useRef, useState } from "react";
+import type { MediaItem } from "../types";
 import {
   ensurePreview,
   originalSrc,
@@ -18,7 +18,7 @@ import {
 import { useZoom } from "../hooks/useZoom";
 
 interface Props {
-  photos: Photo[];
+  photos: MediaItem[];
   index: number;
   onClose: () => void;
   onNavigate: (index: number) => void;
@@ -27,6 +27,7 @@ interface Props {
 export default function Lightbox({ photos, index, onClose, onNavigate }: Props) {
   const photo = photos[index];
   const isVideo = photo.kind === "video";
+  const rootRef = useRef<HTMLDivElement>(null);
 
   // 键盘导航
   useEffect(() => {
@@ -39,8 +40,23 @@ export default function Lightbox({ photos, index, onClose, onNavigate }: Props) 
     return () => window.removeEventListener("keydown", onKey);
   }, [index, photos.length, onClose, onNavigate]);
 
+  // 打开时接管焦点（避免焦点滞留在背景网格），关闭时还原到来源元素
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null;
+    rootRef.current?.focus();
+    return () => prev?.focus?.();
+  }, []);
+
   return (
-    <div className="lightbox" onClick={onClose}>
+    <div
+      ref={rootRef}
+      className="lightbox"
+      role="dialog"
+      aria-modal="true"
+      aria-label={photo.filename}
+      tabIndex={-1}
+      onClick={onClose}
+    >
       <div className="lightbox__stage" onClick={(e) => e.stopPropagation()}>
         {index > 0 && (
           <button
@@ -75,7 +91,7 @@ export default function Lightbox({ photos, index, onClose, onNavigate }: Props) 
 }
 
 /** 视频播放（asset 协议，支持拖动进度） */
-function VideoStage({ photo }: { photo: Photo }) {
+function VideoStage({ photo }: { photo: MediaItem }) {
   const [failed, setFailed] = useState(false);
   if (failed) {
     return (
@@ -100,9 +116,10 @@ function VideoStage({ photo }: { photo: Photo }) {
 }
 
 /** 照片查看：缩放 + 平移（逻辑封装在 useZoom） */
-function PhotoStage({ photo, neighbors }: { photo: Photo; neighbors: (Photo | undefined)[] }) {
+function PhotoStage({ photo, neighbors }: { photo: MediaItem; neighbors: (MediaItem | undefined)[] }) {
   // 当前显示的图源：先缩略图占位，高清图后台预解码完成后再整体替换
   const [src, setSrc] = useState(() => thumbUrl(photo.id));
+  const loaderRef = useRef<HTMLImageElement | null>(null);
   const { zoom, stageRef, setScale, reset, bind } = useZoom(photo.id);
 
   useEffect(() => {
@@ -111,6 +128,7 @@ function PhotoStage({ photo, neighbors }: { photo: Photo; neighbors: (Photo | un
     // 预解码完成后再替换，避免半路糊图闪烁；失败时可走回退
     const swapWhenLoaded = (url: string, onFail?: () => void) => {
       const img = new Image();
+      loaderRef.current = img;
       img.onload = () => alive && setSrc(url);
       img.onerror = () => alive && onFail?.();
       img.src = url;
@@ -135,6 +153,8 @@ function PhotoStage({ photo, neighbors }: { photo: Photo; neighbors: (Photo | un
     });
     return () => {
       alive = false;
+      // 中止仍在加载的高清图，避免快速切换时浪费带宽
+      if (loaderRef.current) loaderRef.current.src = "";
     };
   }, [photo.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -172,7 +192,7 @@ function PhotoStage({ photo, neighbors }: { photo: Photo; neighbors: (Photo | un
   );
 }
 
-function DetailPanel({ photo, onClose }: { photo: Photo; onClose: () => void }) {
+function DetailPanel({ photo, onClose }: { photo: MediaItem; onClose: () => void }) {
   const isVideo = photo.kind === "video";
   const dims = photo.width && photo.height ? `${photo.width} × ${photo.height}` : "—";
   const subtitle = isVideo
@@ -241,14 +261,17 @@ function DetailPanel({ photo, onClose }: { photo: Photo; onClose: () => void }) 
       <div className="detail__path" title={photo.path}>
         {photo.path}
       </div>
-      <button className="btn detail__reveal" onClick={() => revealInFinder(photo.path)}>
+      <button
+        className="btn detail__reveal"
+        onClick={() => revealInFinder(photo.path).catch(() => {})}
+      >
         在访达中显示
       </button>
     </div>
   );
 }
 
-function joinCamera(p: Photo): string {
+function joinCamera(p: MediaItem): string {
   const parts = [p.camera_make, p.camera_model].filter(Boolean);
   return parts.length ? parts.join(" ") : "—";
 }

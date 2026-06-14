@@ -13,7 +13,10 @@ use std::sync::{Arc, Mutex};
 use rayon::prelude::*;
 use serde_json::json;
 use tauri::menu::{Menu, MenuItem, Submenu};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, Manager, State, TitleBarStyle, WebviewUrl,
+    WebviewWindowBuilder,
+};
 use walkdir::WalkDir;
 
 use db::{Facets, Filter};
@@ -91,6 +94,11 @@ fn app_info() -> AppInfo {
 
 fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
     tracing::info!(root = %root, "扫描开始");
+    // 守卫：root 必须是目录。否则没有路径以 "<root>/" 开头，
+    // purge_outside_root 会把整库都当作“目录外”删光。
+    if !Path::new(&root).is_dir() {
+        return Err("所选路径不是有效目录".into());
+    }
     let cancel = app.state::<AppState>().cancel.clone();
     let mut conn = db::open().map_err(|e| {
         tracing::error!(error = %e, "打开数据库失败");
@@ -148,7 +156,7 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
         .collect();
 
     // 4. 写入索引（即使被取消，也保留已处理的部分）
-    if let Err(e) = db::upsert_photos(&mut conn, &items) {
+    if let Err(e) = db::upsert_media(&mut conn, &items) {
         tracing::error!(error = %e, count = items.len(), "写入索引失败");
         return Err(e.to_string());
     }
@@ -171,31 +179,62 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
                 let _ = std::fs::remove_file(cache::preview_file(id));
             }
         }
+
+        // 贯彻“单目录”语义：把不属于当前 root 的旧索引及其缓存清掉
+        match db::purge_outside_root(&mut conn, &root) {
+            Ok(purged) => {
+                for id in &purged {
+                    let _ = std::fs::remove_file(cache::thumb_file(id));
+                    let _ = std::fs::remove_file(cache::preview_file(id));
+                }
+                if !purged.is_empty() {
+                    tracing::info!(count = purged.len(), "清理其他目录的旧索引");
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "清理其他目录索引失败"),
+        }
     }
 
-    tracing::info!(processed = items.len(), cancelled, "扫描完成");
+    // 处理失败的文件数（仅未取消时有意义）
+    let failed = if cancelled {
+        0
+    } else {
+        total.saturating_sub(items.len())
+    };
+    if failed > 0 {
+        tracing::warn!(failed, total, "部分文件处理失败（详见日志）");
+    }
+    tracing::info!(processed = items.len(), cancelled, failed, "扫描完成");
     let _ = app.emit(
         "scan-done",
-        json!({ "processed": items.len(), "total_files": files.len(), "cancelled": cancelled }),
+        json!({
+            "processed": items.len(),
+            "total_files": files.len(),
+            "cancelled": cancelled,
+            "failed": failed,
+        }),
     );
     Ok(items.len())
 }
 
 #[tauri::command]
 fn query_photos(state: State<AppState>, filter: Filter) -> Result<Vec<MediaItem>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    // 容忍锁中毒：此处中毒不代表 Connection 数据损坏，避免一次 panic 永久瘫痪检索
+    let conn = state.db.lock().unwrap_or_else(|e| e.into_inner());
     db::query(&conn, &filter).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn get_facets(state: State<AppState>, root: Option<String>) -> Result<Facets, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    // 容忍锁中毒：此处中毒不代表 Connection 数据损坏，避免一次 panic 永久瘫痪检索
+    let conn = state.db.lock().unwrap_or_else(|e| e.into_inner());
     db::facets(&conn, &root).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn get_photo(state: State<AppState>, id: String) -> Result<Option<MediaItem>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    // 容忍锁中毒：此处中毒不代表 Connection 数据损坏，避免一次 panic 永久瘫痪检索
+    let conn = state.db.lock().unwrap_or_else(|e| e.into_inner());
     db::get_one(&conn, &id).map_err(|e| e.to_string())
 }
 
@@ -203,7 +242,8 @@ fn get_photo(state: State<AppState>, id: String) -> Result<Option<MediaItem>, St
 #[tauri::command]
 fn ensure_preview(state: State<AppState>, id: String) -> Result<bool, String> {
     let item = {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        // 容忍锁中毒：此处中毒不代表 Connection 数据损坏，避免一次 panic 永久瘫痪检索
+    let conn = state.db.lock().unwrap_or_else(|e| e.into_inner());
         db::get_one(&conn, &id).map_err(|e| e.to_string())?
     };
     match item {
@@ -239,15 +279,14 @@ fn image_protocol<R: tauri::Runtime>(
        + 'static {
     move |_ctx, request, responder| {
         let rel = request.uri().path().trim_start_matches('/').to_string();
-        let base = dir_fn();
-        let requested = base.join(rel);
+        // 合法请求恒为 "<blake3 hex>.jpg"：白名单校验文件名本身，从根上杜绝
+        // 路径穿越（含 ..、/、子目录），不再依赖 canonicalize 兼任存在性校验。
+        let valid = rel.strip_suffix(".jpg").map_or(false, |stem| {
+            !stem.is_empty() && stem.bytes().all(|b| b.is_ascii_hexdigit())
+        });
+        let requested = dir_fn().join(&rel);
         std::thread::spawn(move || {
-            // 防路径穿越：规范化后必须仍位于缓存目录内（合法请求始终是 <id>.jpg）。
-            let in_scope = match (base.canonicalize(), requested.canonicalize()) {
-                (Ok(b), Ok(r)) => r.starts_with(&b),
-                _ => false,
-            };
-            let response = match in_scope.then(|| std::fs::read(&requested)) {
+            let response = match valid.then(|| std::fs::read(&requested)) {
                 Some(Ok(bytes)) => tauri::http::Response::builder()
                     .header("Content-Type", "image/jpeg")
                     .header("Cache-Control", "max-age=31536000")
@@ -283,6 +322,17 @@ pub fn run() {
                 cancel: Arc::new(AtomicBool::new(false)),
             });
 
+            // 主窗口由 Rust 创建（而非 tauri.conf.json），以便用 traffic_light_position
+            // 把 macOS 红绿灯下移，垂直对齐到约 52px 高的工具栏中心。
+            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                .title("照片浏览器")
+                .inner_size(1280.0, 840.0)
+                .min_inner_size(880.0, 560.0)
+                .title_bar_style(TitleBarStyle::Overlay)
+                .hidden_title(true)
+                .traffic_light_position(LogicalPosition::new(20.0, 22.0))
+                .build()?;
+
             // 原生菜单栏：在默认菜单（含 退出/复制/粘贴 等）基础上追加“目录”子菜单
             let h = app.handle().clone();
             let menu = Menu::default(&h)?;
@@ -292,8 +342,22 @@ pub fn run() {
             let open_logs = MenuItem::with_id(&h, "open_logs", "打开日志目录", true, None::<&str>)?;
             let dirs = Submenu::with_items(&h, "目录", true, &[&open_data, &open_cache, &open_logs])?;
             menu.append(&dirs)?;
+            // 仅 dev 注册调试控制台入口；prod 构建不出现该菜单项
+            #[cfg(debug_assertions)]
+            {
+                let devtools =
+                    MenuItem::with_id(&h, "open_devtools", "打开调试控制台", true, None::<&str>)?;
+                menu.append(&devtools)?;
+            }
             app.set_menu(menu)?;
             app.on_menu_event(|_app, event| {
+                #[cfg(debug_assertions)]
+                if event.id().as_ref() == "open_devtools" {
+                    if let Some(w) = _app.get_webview_window("main") {
+                        w.open_devtools();
+                    }
+                    return;
+                }
                 let dir = match event.id().as_ref() {
                     "open_data" => cache::data_dir(),
                     "open_cache" => cache::cache_dir(),

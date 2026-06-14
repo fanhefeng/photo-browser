@@ -1,6 +1,6 @@
 // 与 Rust 后端结构体一一对应的类型定义
 
-export interface Photo {
+export interface MediaItem {
   id: string;
   path: string;
   filename: string;
@@ -25,30 +25,32 @@ export interface Photo {
   orientation: number | null;
 }
 
+/** 一个分类项：稳定 key（用于过滤）+ 展示标签 + 数量 */
 export interface FacetItem {
-  value: string;
+  key: string;
+  label: string;
   count: number;
+}
+
+/** 一个分组维度：维度标识 + 标题 + 其下各分类 */
+export interface FacetGroup {
+  dim: string;
+  title: string;
+  items: FacetItem[];
 }
 
 export interface Facets {
   total: number;
-  kinds: FacetItem[];
-  years: FacetItem[];
-  cameras: FacetItem[];
-  lenses: FacetItem[];
-  formats: FacetItem[];
-  with_gps: number;
+  groups: FacetGroup[];
 }
 
 export interface Filter {
   root?: string;
   text?: string;
-  years: number[];
-  cameras: string[];
-  lenses: string[];
-  formats: string[];
-  kinds: string[];
-  has_gps: boolean;
+  /** 当前“分组查看”所选维度（kind/year/camera/focal/iso/format/gps）；全局单选 */
+  group_dim?: string;
+  /** 该维度下所选分类 key（如 "2024" / "wide" / "unknown"） */
+  group_key?: string;
   sort_by: SortBy;
   sort_dir: "asc" | "desc";
   limit?: number;
@@ -65,12 +67,6 @@ export type SortBy =
   | "mtime";
 
 export const emptyFilter = (): Filter => ({
-  years: [],
-  cameras: [],
-  lenses: [],
-  formats: [],
-  kinds: [],
-  has_gps: false,
   sort_by: "taken_at",
   sort_dir: "desc",
 });

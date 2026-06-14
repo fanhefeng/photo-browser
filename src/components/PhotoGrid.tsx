@@ -1,11 +1,11 @@
 import { forwardRef, useCallback } from "react";
 import { VirtuosoGrid, type GridComponents } from "react-virtuoso";
-import type { Photo } from "../types";
+import type { MediaItem } from "../types";
 import { thumbUrl } from "../api";
 import { formatDateShort, formatDuration } from "../utils";
 
 interface Props {
-  photos: Photo[];
+  photos: MediaItem[];
   onSelect: (index: number) => void;
 }
 
@@ -72,7 +72,8 @@ export default function PhotoGrid({ photos, onSelect }: Props) {
   if (photos.length === 0) {
     return (
       <div className="grid-empty">
-        <p>没有符合条件的照片</p>
+        <p className="grid-empty__title">没有符合条件的照片</p>
+        <span className="grid-empty__hint">试试切换左侧分类，或点「显示全部」</span>
       </div>
     );
   }

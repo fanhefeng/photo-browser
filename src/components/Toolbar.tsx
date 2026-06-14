@@ -1,4 +1,12 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Filter, SortBy } from "../types";
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  FolderIcon,
+  RescanIcon,
+  SearchIcon,
+} from "./icons";
 
 interface Props {
   rootPath: string | null;
@@ -20,6 +28,7 @@ const SORT_OPTIONS: { value: SortBy; label: string }[] = [
   { value: "focal_length", label: "焦距" },
 ];
 
+
 export default function Toolbar({
   rootPath,
   filter,
@@ -36,24 +45,47 @@ export default function Toolbar({
       : 0;
 
   return (
-    <header className="toolbar">
+    <header
+      className="toolbar"
+      onMouseDown={(e) => {
+        // 仅在拖动工具栏空白区时移动窗口；排除左侧红绿灯区域（offsetX ≤ 100）
+        if (
+          e.target === e.currentTarget &&
+          e.buttons === 1 &&
+          e.nativeEvent.offsetX > 100
+        ) {
+          void getCurrentWindow().startDragging();
+        }
+      }}
+    >
       <div className="toolbar__left">
-        <button className="btn btn--primary" onClick={onOpen}>
-          打开文件夹
+        <button
+          className="btn btn--open"
+          onClick={onOpen}
+          title="打开其它文件夹"
+        >
+          <FolderIcon />
+          打开
         </button>
         {rootPath && (
           <>
+            <span className="toolbar__sep" />
             <span className="toolbar__path" title={rootPath}>
               {rootPath}
             </span>
-            <button className="btn" onClick={onRescan} disabled={scanning}>
-              {scanning ? "扫描中…" : "重新扫描"}
+            <button
+              className="btn btn--icon"
+              onClick={onRescan}
+              disabled={scanning}
+              title="重新扫描"
+            >
+              <RescanIcon className={scanning ? "spin" : undefined} />
             </button>
           </>
         )}
       </div>
 
-      {scanning && progress ? (
+      {!rootPath ? null : scanning && progress ? (
         <div className="toolbar__progress">
           <div className="progress">
             <div className="progress__bar" style={{ width: `${pct}%` }} />
@@ -67,13 +99,16 @@ export default function Toolbar({
         </div>
       ) : (
         <div className="toolbar__right">
-          <input
-            className="search"
-            type="search"
-            placeholder="按文件名搜索…"
-            value={filter.text ?? ""}
-            onChange={(e) => onChange({ text: e.target.value })}
-          />
+          <div className="search">
+            <SearchIcon className="search__icon" />
+            <input
+              className="search__input"
+              type="search"
+              placeholder="按文件名搜索…"
+              value={filter.text ?? ""}
+              onChange={(e) => onChange({ text: e.target.value })}
+            />
+          </div>
           <div className="sort">
             <select
               className="select"
@@ -93,7 +128,7 @@ export default function Toolbar({
                 onChange({ sort_dir: filter.sort_dir === "desc" ? "asc" : "desc" })
               }
             >
-              {filter.sort_dir === "desc" ? "↓" : "↑"}
+              {filter.sort_dir === "desc" ? <ArrowDownIcon /> : <ArrowUpIcon />}
             </button>
           </div>
         </div>

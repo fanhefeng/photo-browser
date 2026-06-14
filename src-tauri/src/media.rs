@@ -3,7 +3,7 @@
 //! 这一层完全不碰数据库，纯函数式地把"一个文件路径"变成"一条结构化记录"，
 //! 因此可以被 rayon 安全地并行调用。照片走 EXIF + image/sips，视频走 ffprobe + ffmpeg。
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use chrono::NaiveDateTime;
@@ -36,6 +36,42 @@ fn tool_ok(name: &str) -> bool {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
+}
+
+/// 运行外部命令并限制最长执行时间；超时则 kill 子进程并返回 Err。
+/// 防止损坏/畸形媒体文件让 ffmpeg/ffprobe/sips 挂起，逐步耗尽 rayon 线程池。
+fn run_timeout(mut cmd: Command, secs: u64) -> Result<std::process::Output, String> {
+    use std::io::Read;
+    use std::process::Stdio;
+    use std::time::Duration;
+    use wait_timeout::ChildExt;
+
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    match child
+        .wait_timeout(Duration::from_secs(secs))
+        .map_err(|e| e.to_string())?
+    {
+        Some(status) => {
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+            if let Some(mut o) = child.stdout.take() {
+                let _ = o.read_to_end(&mut stdout);
+            }
+            if let Some(mut e) = child.stderr.take() {
+                let _ = e.read_to_end(&mut stderr);
+            }
+            Ok(std::process::Output { status, stdout, stderr })
+        }
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Err(format!("外部命令超时（>{secs}s）"))
+        }
+    }
 }
 
 /// macOS 上 image crate 无法直接解码、需要走 sips 兜底的格式
@@ -161,18 +197,17 @@ pub fn build_media(path: &Path) -> Option<MediaItem> {
 
 /// 用 ffprobe 读取视频元数据（时长/分辨率/拍摄时间/机型/GPS）。
 fn parse_video_meta(path: &Path, photo: &mut MediaItem) {
-    let out = match Command::new("ffprobe")
-        .args([
-            "-v",
-            "quiet",
-            "-print_format",
-            "json",
-            "-show_format",
-            "-show_streams",
-        ])
-        .arg(path)
-        .output()
-    {
+    let mut cmd = Command::new("ffprobe");
+    cmd.args([
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
+        "-show_format",
+        "-show_streams",
+    ])
+    .arg(path);
+    let out = match run_timeout(cmd, 30) {
         Ok(o) if o.status.success() => o.stdout,
         _ => {
             tracing::warn!(path = %path.display(), "ffprobe 读取视频元数据失败");
@@ -248,8 +283,8 @@ fn parse_video_meta(path: &Path, photo: &mut MediaItem) {
 /// 用 ffmpeg 抽取一帧作为视频封面（缩放到最长边 max，存为 JPEG）。
 fn video_poster(src: &Path, dst: &Path, max: u32) -> Result<(), String> {
     // 取靠前但避开纯黑首帧的位置
-    let out = Command::new("ffmpeg")
-        .args(["-v", "quiet", "-y", "-ss", "1"])
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-v", "quiet", "-y", "-ss", "1"])
         .arg("-i")
         .arg(src)
         .args([
@@ -260,15 +295,14 @@ fn video_poster(src: &Path, dst: &Path, max: u32) -> Result<(), String> {
             "-q:v",
             "4",
         ])
-        .arg(dst)
-        .output()
-        .map_err(|e| format!("调用 ffmpeg 失败: {e}"))?;
+        .arg(dst);
+    let out = run_timeout(cmd, 30)?;
     if out.status.success() && dst.exists() {
         return Ok(());
     }
     // 视频太短（不足 1 秒）时回退到第 0 帧
-    let out2 = Command::new("ffmpeg")
-        .args(["-v", "quiet", "-y", "-i"])
+    let mut cmd2 = Command::new("ffmpeg");
+    cmd2.args(["-v", "quiet", "-y", "-i"])
         .arg(src)
         .args([
             "-frames:v",
@@ -278,9 +312,8 @@ fn video_poster(src: &Path, dst: &Path, max: u32) -> Result<(), String> {
             "-q:v",
             "4",
         ])
-        .arg(dst)
-        .output()
-        .map_err(|e| format!("调用 ffmpeg 失败: {e}"))?;
+        .arg(dst);
+    let out2 = run_timeout(cmd2, 30)?;
     if out2.status.success() && dst.exists() {
         Ok(())
     } else {
@@ -338,7 +371,7 @@ pub fn ensure_preview(path: &Path, id: &str, ext: &str, orientation: Option<i64>
 /// 标准格式走 image crate；HEIC/HEIF/AVIF 走 macOS 自带的 sips。
 fn make_resized(
     src: &Path,
-    dst: &PathBuf,
+    dst: &Path,
     max: u32,
     ext: &str,
     orientation: Option<i64>,
@@ -380,14 +413,13 @@ fn flatten_to_rgb(img: &image::DynamicImage) -> image::RgbImage {
 }
 
 /// 调用 macOS 的 sips 生成缩略图（自动处理 HEIC、自动按 EXIF 旋转）
-fn sips_resize(src: &Path, dst: &PathBuf, max: u32) -> Result<(), String> {
-    let out = Command::new("sips")
-        .args(["-s", "format", "jpeg", "-Z", &max.to_string()])
+fn sips_resize(src: &Path, dst: &Path, max: u32) -> Result<(), String> {
+    let mut cmd = Command::new("sips");
+    cmd.args(["-s", "format", "jpeg", "-Z", &max.to_string()])
         .arg(src)
         .arg("--out")
-        .arg(dst)
-        .output()
-        .map_err(|e| format!("调用 sips 失败: {e}"))?;
+        .arg(dst);
+    let out = run_timeout(cmd, 30)?;
     if out.status.success() {
         Ok(())
     } else {

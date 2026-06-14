@@ -1,174 +1,78 @@
-import { useState } from "react";
-import type { Facets, FacetItem, Filter } from "../types";
+import type { Facets, Filter } from "../types";
 
 interface Props {
   facets: Facets | null;
   filter: Filter;
   onChange: (patch: Partial<Filter>) => void;
+  width: number;
 }
 
-/** 在数组维度里切换某个值（多选筛选） */
-function toggle<T>(arr: T[], v: T): T[] {
-  return arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
-}
-
-interface SectionConfig {
-  key: string;
-  title: string;
-  items: FacetItem[];
-  selected: string[];
-  onToggle: (value: string) => void;
-  labelFmt?: (value: string) => string;
-  show?: boolean;
-}
-
-export default function Sidebar({ facets, filter, onChange }: Props) {
+/**
+ * 分组查看侧边栏：每个维度一组标签，全局单选（Tab 式）。
+ * 点某个分类即只看该类；切换到别的分类会自动取消上一个；点「全部」或当前项 = 回到全部。
+ * 各维度互相独立、不取交集——任何时刻只有一个分类处于激活态。
+ */
+export default function Sidebar({ facets, filter, onChange, width }: Props) {
   if (!facets) {
-    return <aside className="sidebar sidebar--empty">尚未加载照片</aside>;
+    return (
+      <aside className="sidebar sidebar--empty" style={{ width }}>
+        尚未加载照片
+      </aside>
+    );
   }
 
-  const activeCount =
-    filter.years.length +
-    filter.cameras.length +
-    filter.lenses.length +
-    filter.formats.length +
-    filter.kinds.length +
-    (filter.has_gps ? 1 : 0) +
-    (filter.text ? 1 : 0);
+  const hasActive = !!(filter.group_dim && filter.group_key);
+  const showAll = () => onChange({ group_dim: undefined, group_key: undefined });
 
-  // 各筛选维度统一用配置驱动，避免重复 JSX
-  const sections: SectionConfig[] = [
-    {
-      key: "kinds",
-      title: "类型",
-      items: facets.kinds,
-      selected: filter.kinds,
-      onToggle: (v) => onChange({ kinds: toggle(filter.kinds, v) }),
-      labelFmt: (v) => (v === "video" ? "视频" : "照片"),
-      show: facets.kinds.length > 1,
-    },
-    {
-      key: "years",
-      title: "拍摄时间",
-      items: facets.years,
-      selected: filter.years.map(String),
-      onToggle: (v) => onChange({ years: toggle(filter.years, Number(v)) }),
-      labelFmt: (v) => `${v} 年`,
-    },
-    {
-      key: "cameras",
-      title: "相机",
-      items: facets.cameras,
-      selected: filter.cameras,
-      onToggle: (v) => onChange({ cameras: toggle(filter.cameras, v) }),
-    },
-    {
-      key: "lenses",
-      title: "镜头",
-      items: facets.lenses,
-      selected: filter.lenses,
-      onToggle: (v) => onChange({ lenses: toggle(filter.lenses, v) }),
-    },
-    {
-      key: "formats",
-      title: "格式",
-      items: facets.formats,
-      selected: filter.formats,
-      onToggle: (v) => onChange({ formats: toggle(filter.formats, v) }),
-      labelFmt: (v) => v.toUpperCase(),
-    },
-  ];
+  const select = (dim: string, key: string) => {
+    // 再次点击当前激活项 = 取消（回到全部）
+    if (filter.group_dim === dim && filter.group_key === key) {
+      showAll();
+    } else {
+      onChange({ group_dim: dim, group_key: key });
+    }
+  };
+
+  // 只展示有 2 个及以上分类的维度（单一分类等同“全部”，没有筛选意义）
+  const groups = facets.groups.filter((g) => g.items.length > 1);
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" style={{ width }}>
       <div className="sidebar__head">
-        <span className="sidebar__total">{facets.total.toLocaleString()} 张照片</span>
-        {activeCount > 0 && (
-          <button
-            className="link-btn"
-            onClick={() =>
-              onChange({
-                years: [],
-                cameras: [],
-                lenses: [],
-                formats: [],
-                kinds: [],
-                has_gps: false,
-                text: "",
-              })
-            }
-          >
-            清除筛选 ({activeCount})
+        <span className="sidebar__total">
+          {facets.total.toLocaleString()} 张
+        </span>
+        {hasActive && (
+          <button className="link-btn" onClick={showAll}>
+            显示全部
           </button>
         )}
       </div>
 
-      {sections
-        .filter((s) => s.show !== false)
-        .map((s) => (
-          <Section
-            key={s.key}
-            title={s.title}
-            items={s.items}
-            selected={s.selected}
-            onToggle={s.onToggle}
-            labelFmt={s.labelFmt}
-          />
-        ))}
-
-      <div className="facet">
-        <label className="facet__row facet__row--toggle">
-          <input
-            type="checkbox"
-            checked={filter.has_gps}
-            onChange={(e) => onChange({ has_gps: e.target.checked })}
-          />
-          <span className="facet__label">仅看有定位的</span>
-          <span className="facet__count">{facets.with_gps}</span>
-        </label>
-      </div>
+      {groups.map((g) => {
+        const dimActive = filter.group_dim === g.dim;
+        return (
+          <div className="facet" key={g.dim}>
+            <div className="facet__title">{g.title}</div>
+            <div className="pills">
+              {g.items.map((it) => {
+                const on = dimActive && filter.group_key === it.key;
+                return (
+                  <button
+                    key={it.key}
+                    className={`pill ${on ? "pill--on" : ""}`}
+                    onClick={() => select(g.dim, it.key)}
+                    title={it.label}
+                  >
+                    <span className="pill__label">{it.label}</span>
+                    <span className="pill__count">{it.count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </aside>
-  );
-}
-
-interface SectionProps {
-  title: string;
-  items: FacetItem[];
-  selected: string[];
-  onToggle: (value: string) => void;
-  labelFmt?: (value: string) => string;
-}
-
-function Section({ title, items, selected, onToggle, labelFmt }: SectionProps) {
-  const [open, setOpen] = useState(true);
-  if (items.length === 0) return null;
-  const shown = open ? items : [];
-
-  return (
-    <div className="facet">
-      <button className="facet__title" onClick={() => setOpen((o) => !o)}>
-        <span className={`chevron ${open ? "chevron--open" : ""}`}>›</span>
-        {title}
-        <span className="facet__title-count">{items.length}</span>
-      </button>
-      <div className="facet__list">
-        {shown.map((it) => (
-          <label
-            key={it.value}
-            className={`facet__row ${selected.includes(it.value) ? "is-active" : ""}`}
-          >
-            <input
-              type="checkbox"
-              checked={selected.includes(it.value)}
-              onChange={() => onToggle(it.value)}
-            />
-            <span className="facet__label" title={it.value}>
-              {labelFmt ? labelFmt(it.value) : it.value}
-            </span>
-            <span className="facet__count">{it.count}</span>
-          </label>
-        ))}
-      </div>
-    </div>
   );
 }

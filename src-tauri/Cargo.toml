@@ -34,8 +34,8 @@ chrono = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
+wait-timeout = "0.2"
 
-[profile.dev]
 # 加快图片解码/缩放：即使 dev 模式也优化依赖库
 [profile.dev.package."*"]
 opt-level = 3
