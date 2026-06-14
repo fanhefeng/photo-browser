@@ -30,8 +30,18 @@ pub fn has_video_tools() -> bool {
     tool_ok("ffprobe") && tool_ok("ffmpeg")
 }
 
+fn tool_path(name: &str) -> std::path::PathBuf {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let bundled = dir.join(name);
+            if bundled.is_file() { return bundled; }
+        }
+    }
+    std::path::PathBuf::from(name)
+}
+
 fn tool_ok(name: &str) -> bool {
-    Command::new(name)
+    Command::new(tool_path(name))
         .arg("-version")
         .output()
         .map(|o| o.status.success())
@@ -210,7 +220,7 @@ pub fn build_media(path: &Path) -> Option<MediaItem> {
 
 /// 用 ffprobe 读取视频元数据（时长/分辨率/拍摄时间/机型/GPS）。
 fn parse_video_meta(path: &Path, photo: &mut MediaItem) {
-    let mut cmd = Command::new("ffprobe");
+    let mut cmd = Command::new(tool_path("ffprobe"));
     cmd.args([
         "-v",
         "quiet",
@@ -295,7 +305,7 @@ fn parse_video_meta(path: &Path, photo: &mut MediaItem) {
 
 /// 构建一条 ffmpeg 抽帧命令；seek=Some("1") 取第 1 秒、None 取首帧。
 fn poster_cmd(src: &Path, dst: &Path, max: u32, seek: Option<&str>) -> Command {
-    let mut cmd = Command::new("ffmpeg");
+    let mut cmd = Command::new(tool_path("ffmpeg"));
     cmd.args(["-v", "quiet", "-y"]);
     if let Some(s) = seek {
         cmd.args(["-ss", s]);

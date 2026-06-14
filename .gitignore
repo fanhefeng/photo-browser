@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# 打包用的 sidecar 二进制（ffmpeg/ffprobe）：CI 打包时动态下载，本地手动放置，不入库
+src-tauri/binaries/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

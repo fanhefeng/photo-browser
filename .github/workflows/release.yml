@@ -1,0 +1,79 @@
+name: Release
+
+# 推送 v 开头的 tag（如 v0.1.0）即自动打包并发布 Release。
+# 发版流程：bump 版本号 → git tag vX.Y.Z → git push --tags
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # tauri-action 创建 Release、上传 .dmg 需要写权限
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9 # 对应 pnpm-lock.yaml 的 lockfileVersion 9.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # 仅 Apple Silicon（M 系列）
+          targets: aarch64-apple-darwin
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      # 下载零依赖的静态 ffmpeg/ffprobe（arm64），作为 sidecar 打进 App，
+      # 终端用户无需自行安装。命名须带 target triple 后缀供 Tauri externalBin 识别。
+      - name: Fetch static ffmpeg/ffprobe (arm64) for sidecar bundling
+        run: |
+          mkdir -p src-tauri/binaries
+          curl -fL --retry 3 -o /tmp/ffmpeg.zip "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip"
+          curl -fL --retry 3 -o /tmp/ffprobe.zip "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffprobe.zip"
+          unzip -oj /tmp/ffmpeg.zip -d src-tauri/binaries
+          unzip -oj /tmp/ffprobe.zip -d src-tauri/binaries
+          mv src-tauri/binaries/ffmpeg src-tauri/binaries/ffmpeg-aarch64-apple-darwin
+          mv src-tauri/binaries/ffprobe src-tauri/binaries/ffprobe-aarch64-apple-darwin
+          chmod +x src-tauri/binaries/ffmpeg-aarch64-apple-darwin src-tauri/binaries/ffprobe-aarch64-apple-darwin
+
+      # tauri-action 会自动跑 beforeBuildCommand(pnpm build)+ tauri build，
+      # 然后用 tag 创建 Release 并上传生成的 .dmg / .app.tar.gz。
+      # 版本号取自 src-tauri/tauri.conf.json，产物名形如 photo-browser_0.1.0_universal.dmg。
+      - name: Build & release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 照片浏览器 ${{ github.ref_name }}
+          releaseBody: |
+            ## 安装（macOS）
+
+            1. 下载下方的 `.dmg`，打开后将「照片浏览器」拖入「应用程序」。
+            2. 本应用**未经 Apple 公证签名**，首次打开请**右键点击图标 → 打开**，在弹窗里再点「打开」绕过 Gatekeeper（之后双击即可）。
+            3. 视频封面与元数据所需的 `ffmpeg`/`ffprobe` 已内置在 App 内，无需另行安装。
+
+            系统要求：Apple Silicon（M 系列）Mac，macOS 11 Big Sur 及以上。
+          releaseDraft: false
+          prerelease: false
+          # 仅 Apple Silicon（M 系列）；ffmpeg/ffprobe 作为 sidecar 内置
+          args: --target aarch64-apple-darwin
