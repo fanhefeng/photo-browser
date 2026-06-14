@@ -51,27 +51,40 @@ fn run_timeout(mut cmd: Command, secs: u64) -> Result<std::process::Output, Stri
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| e.to_string())?;
-    match child
+
+    // 用独立线程并发排空 stdout/stderr，避免子进程写满管道缓冲（~64KB）后阻塞，
+    // 而父进程正阻塞在 wait_timeout 上互等 → 被误判为超时（如 ffprobe 大 JSON）。
+    let mut so = child.stdout.take();
+    let mut se = child.stderr.take();
+    let t_out = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(s) = so.as_mut() {
+            let _ = s.read_to_end(&mut buf);
+        }
+        buf
+    });
+    let t_err = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(s) = se.as_mut() {
+            let _ = s.read_to_end(&mut buf);
+        }
+        buf
+    });
+
+    let timed_out = child
         .wait_timeout(Duration::from_secs(secs))
         .map_err(|e| e.to_string())?
-    {
-        Some(status) => {
-            let mut stdout = Vec::new();
-            let mut stderr = Vec::new();
-            if let Some(mut o) = child.stdout.take() {
-                let _ = o.read_to_end(&mut stdout);
-            }
-            if let Some(mut e) = child.stderr.take() {
-                let _ = e.read_to_end(&mut stderr);
-            }
-            Ok(std::process::Output { status, stdout, stderr })
-        }
-        None => {
-            let _ = child.kill();
-            let _ = child.wait();
-            Err(format!("外部命令超时（>{secs}s）"))
-        }
+        .is_none();
+    if timed_out {
+        let _ = child.kill();
     }
+    let status = child.wait().map_err(|e| e.to_string())?;
+    let stdout = t_out.join().unwrap_or_default();
+    let stderr = t_err.join().unwrap_or_default();
+    if timed_out {
+        return Err(format!("外部命令超时（>{secs}s）"));
+    }
+    Ok(std::process::Output { status, stdout, stderr })
 }
 
 /// macOS 上 image crate 无法直接解码、需要走 sips 兜底的格式
@@ -280,12 +293,14 @@ fn parse_video_meta(path: &Path, photo: &mut MediaItem) {
     }
 }
 
-/// 用 ffmpeg 抽取一帧作为视频封面（缩放到最长边 max，存为 JPEG）。
-fn video_poster(src: &Path, dst: &Path, max: u32) -> Result<(), String> {
-    // 取靠前但避开纯黑首帧的位置
+/// 构建一条 ffmpeg 抽帧命令；seek=Some("1") 取第 1 秒、None 取首帧。
+fn poster_cmd(src: &Path, dst: &Path, max: u32, seek: Option<&str>) -> Command {
     let mut cmd = Command::new("ffmpeg");
-    cmd.args(["-v", "quiet", "-y", "-ss", "1"])
-        .arg("-i")
+    cmd.args(["-v", "quiet", "-y"]);
+    if let Some(s) = seek {
+        cmd.args(["-ss", s]);
+    }
+    cmd.arg("-i")
         .arg(src)
         .args([
             "-frames:v",
@@ -296,24 +311,17 @@ fn video_poster(src: &Path, dst: &Path, max: u32) -> Result<(), String> {
             "4",
         ])
         .arg(dst);
-    let out = run_timeout(cmd, 30)?;
+    cmd
+}
+
+/// 用 ffmpeg 抽取一帧作为视频封面（缩放到最长边 max，存为 JPEG）。
+fn video_poster(src: &Path, dst: &Path, max: u32) -> Result<(), String> {
+    // 先取第 1 秒（避开纯黑首帧）；视频不足 1 秒会失败，再回退到首帧。
+    let out = run_timeout(poster_cmd(src, dst, max, Some("1")), 30)?;
     if out.status.success() && dst.exists() {
         return Ok(());
     }
-    // 视频太短（不足 1 秒）时回退到第 0 帧
-    let mut cmd2 = Command::new("ffmpeg");
-    cmd2.args(["-v", "quiet", "-y", "-i"])
-        .arg(src)
-        .args([
-            "-frames:v",
-            "1",
-            "-vf",
-            &format!("scale='min({max},iw)':-2"),
-            "-q:v",
-            "4",
-        ])
-        .arg(dst);
-    let out2 = run_timeout(cmd2, 30)?;
+    let out2 = run_timeout(poster_cmd(src, dst, max, None), 30)?;
     if out2.status.success() && dst.exists() {
         Ok(())
     } else {

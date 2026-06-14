@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
 import i18n from "./i18n";
 import "./App.css";
@@ -10,6 +9,7 @@ import { emptyFilter } from "./types";
 import {
   appInfo,
   cancelScan,
+  dragWindow,
   getFacets,
   pickDirectory,
   queryPhotos,
@@ -22,7 +22,6 @@ import Sidebar from "./components/Sidebar";
 import PhotoGrid from "./components/PhotoGrid";
 import Lightbox from "./components/Lightbox";
 import { FolderIcon, GalleryGlyph } from "./components/icons";
-import LangSwitch from "./components/LangSwitch";
 
 export default function App() {
   const { t } = useTranslation();
@@ -59,6 +58,13 @@ export default function App() {
       .catch(() => {});
     // 同步实际语言给后端，让原生菜单跟随
     setLocale(i18n.language.startsWith("zh") ? "zh" : "en").catch(() => {});
+    // 监听原生菜单的语言切换，同步前端 i18n
+    const un = listen<string>("locale-changed", (e) => {
+      i18n.changeLanguage(e.payload);
+    });
+    return () => {
+      un.then((f) => f());
+    };
   }, []);
 
   // —— 监听扫描进度事件 ——
@@ -140,8 +146,10 @@ export default function App() {
     setScanning(true);
     setProgress({ done: 0, total: 0 });
     scanDirectory(dir).catch((err) => {
-      // err 可能是后端返回的 i18n key（如 backend.notDirectory），t() 命中则翻译、否则原样
-      setError(i18n.t("error.scanFailed", { msg: i18n.t(String(err)) }));
+      // err 可能是后端返回的 i18n key（如 backend.notDirectory）；仅当确为已知 key 时才翻译
+      const raw = String(err);
+      const msg = i18n.exists(raw) ? i18n.t(raw) : raw;
+      setError(i18n.t("error.scanFailed", { msg }));
       setScanning(false);
       setProgress(null);
     });
@@ -186,19 +194,8 @@ export default function App() {
         // 空状态：不显示工具栏，只留一条透明拖动条容纳红绿灯
         <div
           className="dragbar"
-          onMouseDown={(e) => {
-            // 排除左侧红绿灯区域（offsetX ≤ 80）和子元素（语言切换），其余可拖动窗口
-            if (
-              e.target === e.currentTarget &&
-              e.buttons === 1 &&
-              e.nativeEvent.offsetX > 80
-            ) {
-              void getCurrentWindow().startDragging();
-            }
-          }}
-        >
-          <LangSwitch />
-        </div>
+          onMouseDown={(e) => dragWindow(e.nativeEvent.offsetX, e.buttons)}
+        />
       )}
 
       {!videoOk && (

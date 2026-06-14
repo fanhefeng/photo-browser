@@ -1,5 +1,5 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
+import { dragWindow } from "../api";
 import type { Filter, SortBy } from "../types";
 import {
   ArrowDownIcon,
@@ -8,7 +8,6 @@ import {
   RescanIcon,
   SearchIcon,
 } from "./icons";
-import LangSwitch from "./LangSwitch";
 
 interface Props {
   rootPath: string | null;
@@ -50,13 +49,9 @@ export default function Toolbar({
     <header
       className="toolbar"
       onMouseDown={(e) => {
-        // 仅在拖动工具栏空白区时移动窗口；排除左侧红绿灯区域（offsetX ≤ 100）
-        if (
-          e.target === e.currentTarget &&
-          e.buttons === 1 &&
-          e.nativeEvent.offsetX > 100
-        ) {
-          void getCurrentWindow().startDragging();
+        // 仅工具栏空白区（非按钮/输入等子元素）才拖动窗口
+        if (e.target === e.currentTarget) {
+          dragWindow(e.nativeEvent.offsetX, e.buttons);
         }
       }}
     >
@@ -133,7 +128,6 @@ export default function Toolbar({
               {filter.sort_dir === "desc" ? <ArrowDownIcon /> : <ArrowUpIcon />}
             </button>
           </div>
-          <LangSwitch />
         </div>
       )}
     </header>

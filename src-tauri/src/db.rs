@@ -48,17 +48,20 @@ fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         );
         "#,
     )?;
-    // 兼容旧库：补列后再建索引（否则旧表上的 idx_kind 找不到列）。
-    // 仅忽略“列已存在”，其余错误（磁盘满/库损坏）上抛，避免被静默吞掉。
-    for sql in [
-        "ALTER TABLE photos ADD COLUMN kind TEXT NOT NULL DEFAULT 'photo'",
-        "ALTER TABLE photos ADD COLUMN duration REAL",
-    ] {
-        if let Err(e) = conn.execute(sql, []) {
-            if !e.to_string().contains("duplicate column name") {
-                return Err(e);
-            }
-        }
+    // 兼容旧库：仅在列缺失时补列（新库 CREATE TABLE 已含 kind/duration）。
+    // 用 PRAGMA 查列是否存在，避免依赖 SQLite 错误文案（不同版本/语言可能不同）。
+    let has_column = |name: &str| -> rusqlite::Result<bool> {
+        conn.prepare("SELECT 1 FROM pragma_table_info('photos') WHERE name = ?1")?
+            .exists([name])
+    };
+    if !has_column("kind")? {
+        conn.execute(
+            "ALTER TABLE photos ADD COLUMN kind TEXT NOT NULL DEFAULT 'photo'",
+            [],
+        )?;
+    }
+    if !has_column("duration")? {
+        conn.execute("ALTER TABLE photos ADD COLUMN duration REAL", [])?;
     }
     conn.execute_batch(
         r#"

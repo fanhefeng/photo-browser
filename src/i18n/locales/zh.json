@@ -12,8 +12,7 @@
     "searchPlaceholder": "按文件名搜索…",
     "cancel": "取消",
     "sortAsc": "升序",
-    "sortDesc": "降序",
-    "language": "语言"
+    "sortDesc": "降序"
   },
   "sort": {
     "taken_at": "拍摄时间",

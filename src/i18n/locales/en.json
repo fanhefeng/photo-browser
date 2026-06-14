@@ -12,8 +12,7 @@
     "searchPlaceholder": "Search by filename…",
     "cancel": "Cancel",
     "sortAsc": "Ascending",
-    "sortDesc": "Descending",
-    "language": "Language"
+    "sortDesc": "Descending"
   },
   "sort": {
     "taken_at": "Date taken",

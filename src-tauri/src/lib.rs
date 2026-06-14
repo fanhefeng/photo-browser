@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use rayon::prelude::*;
 use serde_json::json;
-use tauri::menu::{Menu, MenuItem, Submenu};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, Submenu};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, Manager, State, TitleBarStyle, WebviewUrl,
     WebviewWindowBuilder,
@@ -26,10 +26,18 @@ use media::MediaItem;
 /// - `db`：用于查询的共享连接（扫描走独立连接，靠 SQLite WAL 并发读写）。
 /// - `scanning`：是否有扫描在进行，用于拒绝并发扫描。
 /// - `cancel`：取消标志，扫描循环会检查它（Arc 以便安全地共享进 rayon 线程）。
+/// - `locale`：当前界面语言（zh/en），用于菜单重建去重。
 struct AppState {
     db: Mutex<rusqlite::Connection>,
     scanning: AtomicBool,
     cancel: Arc<AtomicBool>,
+    locale: Mutex<String>,
+}
+
+/// 取数据库连接锁，容忍中毒——中毒不代表 Connection 数据损坏，
+/// 避免一次 panic 永久瘫痪所有查询。
+fn lock_db(db: &Mutex<rusqlite::Connection>) -> std::sync::MutexGuard<'_, rusqlite::Connection> {
+    db.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 fn has_media_ext(p: &Path) -> bool {
@@ -220,31 +228,21 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
 
 #[tauri::command]
 fn query_photos(state: State<AppState>, filter: Filter) -> Result<Vec<MediaItem>, String> {
-    // 容忍锁中毒：此处中毒不代表 Connection 数据损坏，避免一次 panic 永久瘫痪检索
-    let conn = state.db.lock().unwrap_or_else(|e| e.into_inner());
+    let conn = lock_db(&state.db);
     db::query(&conn, &filter).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn get_facets(state: State<AppState>, root: Option<String>) -> Result<Facets, String> {
-    // 容忍锁中毒：此处中毒不代表 Connection 数据损坏，避免一次 panic 永久瘫痪检索
-    let conn = state.db.lock().unwrap_or_else(|e| e.into_inner());
+    let conn = lock_db(&state.db);
     db::facets(&conn, &root).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn get_photo(state: State<AppState>, id: String) -> Result<Option<MediaItem>, String> {
-    // 容忍锁中毒：此处中毒不代表 Connection 数据损坏，避免一次 panic 永久瘫痪检索
-    let conn = state.db.lock().unwrap_or_else(|e| e.into_inner());
-    db::get_one(&conn, &id).map_err(|e| e.to_string())
 }
 
 /// 懒生成大图预览，返回是否就绪。
 #[tauri::command]
 fn ensure_preview(state: State<AppState>, id: String) -> Result<bool, String> {
     let item = {
-        // 容忍锁中毒：此处中毒不代表 Connection 数据损坏，避免一次 panic 永久瘫痪检索
-    let conn = state.db.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = lock_db(&state.db);
         db::get_one(&conn, &id).map_err(|e| e.to_string())?
     };
     match item {
@@ -279,6 +277,7 @@ fn menu_label(key: &str, locale: &str) -> &'static str {
         "open_cache" => if en { "Open Cache Folder" } else { "打开缓存目录" },
         "open_logs" => if en { "Open Logs Folder" } else { "打开日志目录" },
         "open_devtools" => if en { "Open DevTools" } else { "打开调试控制台" },
+        "language" => if en { "Language" } else { "语言" },
         _ => "",
     }
 }
@@ -295,6 +294,14 @@ fn build_menu<R: tauri::Runtime>(
     let open_logs = MenuItem::with_id(app, "open_logs", l("open_logs"), true, None::<&str>)?;
     let dirs = Submenu::with_items(app, l("dirs"), true, &[&open_data, &open_cache, &open_logs])?;
     menu.append(&dirs)?;
+
+    // 语言子菜单：母语名固定（中文 / English），勾选当前语言
+    let lang_zh = CheckMenuItem::with_id(app, "lang_zh", "中文", true, locale != "en", None::<&str>)?;
+    let lang_en =
+        CheckMenuItem::with_id(app, "lang_en", "English", true, locale == "en", None::<&str>)?;
+    let lang_menu = Submenu::with_items(app, l("language"), true, &[&lang_zh, &lang_en])?;
+    menu.append(&lang_menu)?;
+
     #[cfg(debug_assertions)]
     {
         let devtools =
@@ -304,9 +311,17 @@ fn build_menu<R: tauri::Runtime>(
     Ok(menu)
 }
 
-/// 前端切换语言后调用：按新语言重建原生菜单。
+/// 前端切换语言后调用：按新语言重建原生菜单。与当前 locale 相同则跳过，避免无谓重建。
 #[tauri::command]
 fn set_locale(app: AppHandle, lang: String) -> Result<(), String> {
+    {
+        let state = app.state::<AppState>();
+        let mut cur = state.locale.lock().unwrap_or_else(|e| e.into_inner());
+        if *cur == lang {
+            return Ok(());
+        }
+        *cur = lang.clone();
+    }
     let menu = build_menu(&app, &lang).map_err(|e| e.to_string())?;
     app.set_menu(menu).map_err(|e| e.to_string())?;
     Ok(())
@@ -363,10 +378,12 @@ pub fn run() {
                 db: Mutex::new(conn),
                 scanning: AtomicBool::new(false),
                 cancel: Arc::new(AtomicBool::new(false)),
+                locale: Mutex::new("zh".to_string()),
             });
 
             // 主窗口由 Rust 创建（而非 tauri.conf.json），以便用 traffic_light_position
-            // 把 macOS 红绿灯下移，垂直对齐到约 52px 高的工具栏中心。
+            // 把 macOS 红绿灯下移，垂直对齐到工具栏中心。
+            // 普通不透明窗口，全部配色由前端 CSS（纯白实底）控制。
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("照片浏览器")
                 .inner_size(1280.0, 840.0)
@@ -388,7 +405,19 @@ pub fn run() {
                     }
                     return;
                 }
-                let dir = match event.id().as_ref() {
+                // 语言切换：重建菜单（更新勾选）+ 通知前端切换语言
+                let id = event.id().as_ref();
+                if id == "lang_zh" || id == "lang_en" {
+                    let lang = if id == "lang_en" { "en" } else { "zh" };
+                    *_app.state::<AppState>().locale.lock().unwrap_or_else(|e| e.into_inner()) =
+                        lang.to_string();
+                    if let Ok(menu) = build_menu(_app, lang) {
+                        let _ = _app.set_menu(menu);
+                    }
+                    let _ = _app.emit("locale-changed", lang);
+                    return;
+                }
+                let dir = match id {
                     "open_data" => cache::data_dir(),
                     "open_cache" => cache::cache_dir(),
                     "open_logs" => cache::logs_dir(),
@@ -407,7 +436,6 @@ pub fn run() {
             app_info,
             query_photos,
             get_facets,
-            get_photo,
             ensure_preview,
             reveal_in_finder,
             set_locale,

@@ -1,6 +1,7 @@
 // 对 Tauri 后端命令与自定义图片协议的封装
 
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Facets, Filter, MediaItem } from "./types";
 
@@ -46,10 +47,6 @@ export function getFacets(root?: string): Promise<Facets> {
   return invoke<Facets>("get_facets", { root: root ?? null });
 }
 
-export function getPhoto(id: string): Promise<MediaItem | null> {
-  return invoke<MediaItem | null>("get_photo", { id });
-}
-
 export function ensurePreview(id: string): Promise<boolean> {
   return invoke<boolean>("ensure_preview", { id });
 }
@@ -69,8 +66,18 @@ export const thumbUrl = (id: string) => `thumb://localhost/${id}.jpg`;
 /** 大图预览 URL（需先调用 ensurePreview 生成） */
 export const previewUrl = (id: string) => `preview://localhost/${id}.jpg`;
 
-/** 视频原始文件 URL（走 Tauri asset 协议，支持 Range 拖动进度） */
-export const videoSrc = (path: string) => convertFileSrc(path);
+/** 原始文件 URL（走 Tauri asset 协议）。
+ *  视频用它支持 Range 拖动进度；浏览器可直接解码的图片用它呈现原图清晰度。 */
+const assetUrl = (path: string) => convertFileSrc(path);
+export const videoSrc = assetUrl;
+export const originalSrc = assetUrl;
 
-/** 原始文件 URL（走 asset 协议）。用于浏览器可直接解码的图片，呈现原图清晰度 */
-export const originalSrc = (path: string) => convertFileSrc(path);
+/** macOS 红绿灯避让区宽度（左上角窗口控件） */
+const TRAFFIC_LIGHT_ZONE = 80;
+
+/** 标题栏空白处按下时拖动窗口：仅主键、且 offsetX 在红绿灯区右侧才触发 */
+export function dragWindow(offsetX: number, buttons: number) {
+  if (buttons === 1 && offsetX > TRAFFIC_LIGHT_ZONE) {
+    void getCurrentWindow().startDragging();
+  }
+}

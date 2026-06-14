@@ -1,35 +1,52 @@
 :root {
-  /* 表面层次（越靠上越亮） */
-  --bg: #0f1115;
-  --bg-elev: #171a21;
-  --bg-elev2: #1e222b;
-  --bg-hover: #262b36; /* 控件 hover 底色 */
-  --border: #2a2f3a;
-  --border-hover: #39404d;
-  /* 文本 */
-  --text: #e6e8ec;
-  --text-dim: #9aa1ad;
-  --text-faint: #7d8492; /* 提亮至 ≈4.7:1，达 WCAG AA */
-  --on-accent: #fff; /* 品牌色/浮层上的白字 */
-  /* 品牌色（--accent-rgb 供 rgba() 复用，改主题只动这里） */
-  --accent-rgb: 79, 140, 255;
+  color-scheme: light;
+
+  /* —— 表面层次（全部纯白实底；面板靠边框+阴影分层，不依赖毛玻璃）—— */
+  --surface: #ffffff; /* 面板实底（侧栏 + 内容） */
+  --bg: #ffffff; /* 窗口底 */
+  --bg-elev: var(--surface); /* 控件背景（= 面板色，改主题只动 --surface） */
+  --bg-elev2: var(--surface); /* 输入/下拉背景 */
+  --bg-hover: rgba(0, 0, 0, 0.05); /* 控件 hover 加深 */
+
+  /* —— 边框（双边框关键：发丝级细线）—— */
+  --border: rgba(0, 0, 0, 0.1);
+  --border-hover: rgba(0, 0, 0, 0.18);
+  --hairline: rgba(0, 0, 0, 0.07);
+
+  /* —— 文本（Apple 近黑 + 灰阶，均达 WCAG AA）—— */
+  --text: #1d1d1f;
+  --text-dim: rgba(0, 0, 0, 0.56);
+  --text-faint: rgba(0, 0, 0, 0.42);
+  --on-accent: #fff;
+
+  /* —— 品牌色：Apple 系统蓝（--accent-rgb 供 rgba() 复用，改主题只动这里）—— */
+  --accent-rgb: 0, 122, 255;
   --accent: rgb(var(--accent-rgb));
-  --accent-hover: #3f7df0;
-  --accent-soft: rgba(var(--accent-rgb), 0.16);
-  --ring: 0 0 0 3px rgba(var(--accent-rgb), 0.28); /* 键盘 focus 环 */
-  /* 语义状态色 */
-  --warn: #ffcf66;
-  --warn-bg: rgba(255, 184, 0, 0.12);
-  --warn-border: rgba(255, 184, 0, 0.2);
-  --danger: #ff8a8a;
-  --danger-bg: rgba(255, 86, 86, 0.12);
-  --danger-border: rgba(255, 86, 86, 0.22);
-  --scrollbar: #2c313c;
-  --scrollbar-hover: #3a4150;
-  /* 尺寸 */
-  --radius: 10px;
+  --accent-hover: #0071e3;
+  --accent-soft: rgba(var(--accent-rgb), 0.14); /* 侧栏选中底 */
+  --ring: 0 0 0 3px rgba(var(--accent-rgb), 0.3); /* 键盘 focus 环 */
+
+  /* —— 语义状态色 —— */
+  --warn: #8a6d00;
+  --warn-bg: rgba(255, 196, 0, 0.16);
+  --warn-border: rgba(255, 196, 0, 0.42);
+  --danger: #b3261e;
+  --danger-bg: rgba(255, 59, 48, 0.1);
+  --danger-border: rgba(255, 59, 48, 0.28);
+
+  --scrollbar: rgba(0, 0, 0, 0.22);
+  --scrollbar-hover: rgba(0, 0, 0, 0.34);
+  --placeholder: #ececef; /* 缩略图加载前的占位灰 */
+
+  /* —— 尺寸 —— */
+  --radius: 12px; /* 面板/卡片圆角 */
+  --radius-sm: 8px; /* 控件圆角 */
   --thumb: 168px;
-  --ctrl-h: 34px; /* 工具栏控件统一高度 */
+  --ctrl-h: 30px; /* 工具栏控件统一高度（Apple 偏紧凑） */
+
+  /* —— 阴影 —— */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.06), 0 6px 16px rgba(0, 0, 0, 0.06);
+  --shadow-panel: 0 0 0 0.5px rgba(0, 0, 0, 0.05), 0 12px 40px rgba(0, 0, 0, 0.1);
 }
 
 * {
@@ -43,6 +60,7 @@ body,
   margin: 0;
 }
 
+/* 纯白窗口底：白面板靠边框+阴影分层（不依赖毛玻璃，保证干净不发灰） */
 body {
   background: var(--bg);
   color: var(--text);
@@ -61,52 +79,53 @@ body {
 }
 
 /* —————————————— 按钮 / 控件 —————————————— */
+/* 白底 + 发丝边框 + hover 加深——典型 macOS 浅色控件 */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   height: var(--ctrl-h);
-  padding: 0 13px;
-  background: var(--bg-elev2);
+  padding: 0 12px;
+  background: var(--bg-elev);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   white-space: nowrap;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
 }
-.btn:hover {
+.btn:not(:disabled):hover {
   background: var(--bg-hover);
   border-color: var(--border-hover);
+}
+.btn:active {
+  background: var(--bg-hover);
 }
 .btn:focus-visible {
   outline: none;
   box-shadow: var(--ring);
 }
 .btn:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: default;
-}
-.btn:disabled:hover {
-  background: var(--bg-elev2);
-  border-color: var(--border);
 }
 .btn--primary {
   background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  border-color: transparent;
+  color: var(--on-accent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 .btn--primary:hover {
   background: var(--accent-hover);
-  border-color: var(--accent-hover);
+  border-color: transparent;
 }
 .btn--lg {
   height: 44px;
   padding: 0 24px;
   font-size: 15px;
-  border-radius: 10px;
+  border-radius: 11px;
 }
 .btn--icon {
   width: var(--ctrl-h);
@@ -117,19 +136,11 @@ body {
   color: var(--text);
 }
 .btn--sm {
-  height: 28px;
+  height: 26px;
   padding: 0 11px;
   font-size: 12px;
 }
-/* 打开目录按钮：与搜索/排序同款中性控件，文件夹图标用品牌蓝点缀 */
-.btn--open {
-  background: var(--bg-elev2);
-  border-color: var(--border);
-}
-.btn--open:hover {
-  background: var(--bg-hover);
-  border-color: var(--border-hover);
-}
+/* 打开目录按钮：中性控件，文件夹图标用品牌蓝点缀 */
 .btn--open svg {
   color: var(--accent);
 }
@@ -162,9 +173,9 @@ body {
   padding: 0 11px;
   background: var(--bg-elev2);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: text;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
 .search:focus-within {
   border-color: var(--accent);
@@ -196,14 +207,15 @@ body {
   background: var(--bg-elev2);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   outline: none;
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
 .select:hover {
   border-color: var(--border-hover);
+  background: var(--bg-hover);
 }
 .select:focus-visible {
   border-color: var(--accent);
@@ -237,6 +249,7 @@ body {
 .zoom-bar__btn:focus-visible,
 .lightbox__nav:focus-visible,
 .link-btn:focus-visible,
+.link:focus-visible,
 .banner__close:focus-visible {
   outline: none;
   box-shadow: var(--ring);
@@ -255,15 +268,15 @@ body {
 }
 
 /* —————————————— 工具栏 —————————————— */
+/* 透明露出窗口底白，无分隔线；红绿灯悬浮于左侧留白 */
 .toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   /* 左侧留出 macOS 红绿灯的位置（红绿灯由 Rust 下移到本栏中心对齐） */
-  padding: 9px 16px 9px 100px;
-  background: var(--bg-elev);
-  border-bottom: 1px solid var(--border);
+  padding: 10px 16px 10px 100px;
+  background: transparent;
   flex: 0 0 auto;
   cursor: default; /* 拖动区用箭头，不要继承成文本光标 */
 }
@@ -299,7 +312,7 @@ body {
 .progress {
   flex: 1;
   height: 6px;
-  background: var(--bg-elev2);
+  background: rgba(0, 0, 0, 0.08);
   border-radius: 99px;
   overflow: hidden;
 }
@@ -357,25 +370,30 @@ body {
 }
 
 /* —————————————— 侧栏 —————————————— */
+/* 白色面板：实底白 + 发丝边框 + 圆角 + 柔阴影，浮在纯白窗口底上（Apple Photos 风） */
 .sidebar {
   flex: 0 0 auto; /* 宽度由 JS 控制（可拖拽调宽） */
-  background: var(--bg-elev);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-panel);
+  margin: 2px 4px 10px 10px;
   overflow-y: auto;
-  padding: 12px;
+  padding: 10px;
 }
 
-/* 侧边栏与内容之间的拖拽手柄：视觉是 1px 细线，命中区由 ::after 扩大 */
+/* 侧栏与内容之间的拖拽手柄：透明，仅留间隙；命中区由 ::after 扩大 */
 .resizer {
   flex: 0 0 1px;
   position: relative;
-  background: var(--border);
+  background: transparent;
   cursor: col-resize;
   transition: background 0.15s;
 }
 .resizer::after {
   content: "";
   position: absolute;
-  inset: 0 -3px;
+  inset: 0 -4px;
 }
 .resizer:hover,
 .resizer--active {
@@ -389,8 +407,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
-  padding: 0 4px;
+  margin-bottom: 10px;
+  padding: 2px 8px;
 }
 .sidebar__total {
   font-weight: 600;
@@ -398,22 +416,23 @@ body {
 }
 
 .facet {
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
+/* 分组标题：小号大写灰字，像 Apple Music 的 “Library / Store” 分区头 */
 .facet__title {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  color: var(--text-dim);
-  margin: 0 0 6px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin: 0 0 4px 8px;
 }
 
-/* 分类标签组：全局单选（Tab 式），点选即看。
-   一行一个，数字右对齐，视觉整齐。 */
+/* 分类行：Apple 侧栏式无边框圆角行，全局单选（Tab 式），点选即看 */
 .pills {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 1px;
 }
 .pill {
   display: flex;
@@ -421,29 +440,29 @@ body {
   justify-content: space-between;
   gap: 6px;
   min-width: 0;
-  padding: 5px 11px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-elev2);
+  padding: 6px 10px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.4;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+  transition: background 0.12s, color 0.12s, box-shadow 0.12s;
 }
 .pill:hover {
-  border-color: var(--border-hover);
   background: var(--bg-hover);
 }
 .pill:focus-visible {
   outline: none;
   box-shadow: var(--ring);
 }
+/* 选中：淡蓝底 + 蓝字（图标随 currentColor 一并变蓝），无重边框 */
 .pill--on,
 .pill--on:hover {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 590;
 }
 .pill__label {
   min-width: 0;
@@ -454,19 +473,28 @@ body {
 .pill__count {
   flex: none;
   font-size: 11px;
-  opacity: 0.6;
+  color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
 .pill--on .pill__count {
-  opacity: 0.85;
+  color: var(--accent);
+  opacity: 0.7;
 }
 
 /* —————————————— 内容区 / 网格 —————————————— */
+/* 内容面板：实底白 + 发丝边框 + 圆角 + 柔阴影，四周留间隙露出窗口底，
+   与白侧栏面板并列浮在纯白窗口底上。 */
 .content {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
+  margin: 2px 10px 10px 4px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
 }
 .grid-scroller {
   flex: 1;
@@ -475,8 +503,8 @@ body {
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--thumb), 1fr));
-  gap: 8px;
-  padding: 12px;
+  gap: 10px;
+  padding: 14px;
 }
 .cell {
   position: relative;
@@ -486,9 +514,15 @@ body {
   padding: 0;
   border-radius: var(--radius);
   overflow: hidden;
-  background: var(--bg-elev2);
+  background: var(--placeholder);
   cursor: pointer;
   display: block;
+  box-shadow: var(--shadow-card);
+  transition: box-shadow 0.18s, transform 0.18s;
+}
+.cell:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08), 0 12px 28px rgba(0, 0, 0, 0.14);
 }
 .cell:focus-visible {
   outline: 2px solid var(--accent);
@@ -512,7 +546,7 @@ body {
   position: absolute;
   inset: auto 0 0 0;
   padding: 18px 8px 6px;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.75));
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -561,7 +595,7 @@ body {
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.45);
   color: #fff;
   display: flex;
   align-items: center;
@@ -572,7 +606,7 @@ body {
   transition: background 0.15s;
 }
 .cell:hover .cell__play {
-  background: rgba(0, 0, 0, 0.66);
+  background: rgba(0, 0, 0, 0.62);
 }
 .cell__duration {
   position: absolute;
@@ -580,7 +614,7 @@ body {
   bottom: 6px;
   padding: 1px 6px;
   border-radius: 5px;
-  background: rgba(0, 0, 0, 0.66);
+  background: rgba(0, 0, 0, 0.62);
   color: #fff;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
@@ -588,17 +622,14 @@ body {
   z-index: 1;
 }
 
-/* 空状态顶部拖动条：透明，容纳红绿灯与右侧语言切换，其余区域可拖动窗口 */
+/* 空状态顶部拖动条：透明，仅容纳红绿灯并可拖动窗口（语言切换已移入原生菜单） */
 .dragbar {
   flex: 0 0 38px;
   cursor: default;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0 12px;
 }
 
 /* —————————————— 欢迎页 —————————————— */
+/* 居中欢迎屏，坐在纯白窗口底上 */
 .welcome {
   flex: 1;
   display: flex;
@@ -612,12 +643,12 @@ body {
   margin-bottom: 26px;
 }
 .glyph-card-back {
-  fill: var(--bg-elev2);
+  fill: #fff;
   stroke: var(--border);
   stroke-width: 2;
 }
 .glyph-card-front {
-  fill: var(--bg-elev);
+  fill: rgba(255, 255, 255, 0.85);
   stroke: var(--text-faint);
   stroke-width: 2;
 }
@@ -651,13 +682,13 @@ body {
 }
 
 /* —————————————— 大图查看 —————————————— */
+/* 浅色看图：不透明纯白遮罩，与应用主题一致（不再外白内黑）。 */
 .lightbox {
   position: fixed;
   inset: 0;
   z-index: 100;
   display: flex;
-  background: rgba(8, 9, 12, 0.94);
-  backdrop-filter: blur(8px);
+  background: var(--surface); /* 不透明纯白：盖死背后，绝不透出深色发灰 */
   outline: none; /* 程序化聚焦（dialog）不显示默认边框 */
 }
 .lightbox__stage {
@@ -667,7 +698,8 @@ body {
   justify-content: center;
   position: relative;
   min-width: 0;
-  padding: 24px;
+  /* 顶部多留出红绿灯的位置，避免视频原生控件与红绿灯重叠 */
+  padding: 48px 24px 24px;
 }
 .lightbox__img {
   /* 占满舞台并按宽高比留白：缩略图占位即满屏，预览在原地变清晰，不再尺寸跳变 */
@@ -677,9 +709,10 @@ body {
   will-change: transform;
 }
 .lightbox__video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  /* 按画面比例自适应（而非填满+contain），避免 video 自带的深色 letterbox；
+     周围留白露出白色舞台。 */
+  max-width: 100%;
+  max-height: 100%;
   outline: none;
 }
 .media-error {
@@ -712,9 +745,9 @@ body {
   gap: 4px;
   padding: 5px 8px;
   border-radius: 10px;
-  background: rgba(20, 24, 32, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
   opacity: 0;
   transition: opacity 0.15s;
 }
@@ -733,7 +766,7 @@ body {
   cursor: pointer;
 }
 .zoom-bar__btn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.06);
 }
 .zoom-bar__pct {
   min-width: 48px;
@@ -757,17 +790,18 @@ body {
   transform: translateY(-50%);
   width: 44px;
   height: 64px;
-  border: none;
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: rgba(30, 34, 43, 0.6);
-  color: #fff;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: var(--shadow-card);
+  color: var(--text);
   font-size: 30px;
   line-height: 1;
   cursor: pointer;
   transition: background 0.12s;
 }
 .lightbox__nav:hover {
-  background: rgba(60, 66, 80, 0.9);
+  background: #fff;
 }
 .lightbox__nav--prev {
   left: 16px;
@@ -780,7 +814,7 @@ body {
 .detail {
   width: 320px;
   flex: 0 0 320px;
-  background: var(--bg-elev);
+  background: var(--surface);
   border-left: 1px solid var(--border);
   padding: 18px;
   overflow-y: auto;
@@ -838,8 +872,10 @@ body {
 ::-webkit-scrollbar-thumb {
   background: var(--scrollbar);
   border-radius: 99px;
-  border: 2px solid var(--bg);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-hover);
+  background-clip: padding-box;
 }
