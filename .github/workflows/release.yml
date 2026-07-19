@@ -69,11 +69,38 @@ jobs:
             ## 安装（macOS）
 
             1. 下载下方的 `.dmg`，打开后将「照片浏览器」拖入「应用程序」。
-            2. 本应用**未经 Apple 公证签名**，首次打开请**右键点击图标 → 打开**，在弹窗里再点「打开」绕过 Gatekeeper（之后双击即可）。
-            3. 视频封面与元数据所需的 `ffmpeg`/`ffprobe` 已内置在 App 内，无需另行安装。
+            2. 本应用**未经 Apple 公证签名**，首次打开若提示**「已损坏，无法打开」**：双击 dmg 窗口里的 `修复「已损坏」.command` 脚本即可修复（它只做一件事：`xattr -cr /Applications/photo-browser.app` 清除下载隔离属性）。
+            3. 如果脚本本身也被拦截（提示"身份不明的开发者"），在弹窗后打开「系统设置 → 隐私与安全性」，点底部的「仍要打开」；或直接在「终端」里粘贴执行上面那条 `xattr` 命令。
+            4. 视频封面与元数据所需的 `ffmpeg`/`ffprobe` 已内置在 App 内，无需另行安装。
 
             系统要求：Apple Silicon（M 系列）Mac，macOS 11 Big Sur 及以上。
           releaseDraft: false
           prerelease: false
           # 仅 Apple Silicon（M 系列）；ffmpeg/ffprobe 作为 sidecar 内置
           args: --target aarch64-apple-darwin
+
+      # 应用未做 Apple 签名公证，下载后会被 Gatekeeper 报「已损坏」。
+      # 把修复脚本注入 dmg 根目录（与拖装图标并排），再覆盖上传到 Release。
+      # 流程：UDZO 转 UDRW 可写镜像 → 扩容留出余量 → 挂载 → 拷入脚本 → 压回 UDZO。
+      - name: Inject fix-damaged script into dmg
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DMG=$(ls src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg)
+          SCRIPT='src-tauri/dmg/修复「已损坏」.command'
+          RW=/tmp/repack-rw.dmg
+          MNT=/tmp/dmg-mount
+
+          hdiutil convert "$DMG" -format UDRW -o "$RW"
+          SIZE=$(stat -f%z "$RW")
+          hdiutil resize -size $((SIZE + 16 * 1024 * 1024)) "$RW"
+          mkdir -p "$MNT"
+          hdiutil attach "$RW" -nobrowse -mountpoint "$MNT"
+          cp "$SCRIPT" "$MNT/"
+          chmod +x "$MNT/$(basename "$SCRIPT")"
+          hdiutil detach "$MNT"
+
+          rm "$DMG"
+          hdiutil convert "$RW" -format UDZO -imagekey zlib-level=9 -o "$DMG"
+          gh release upload "${{ github.ref_name }}" "$DMG" --clobber
