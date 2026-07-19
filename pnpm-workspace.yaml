@@ -1,0 +1,6 @@
+# Vite+ 接线（见 node_modules/vite-plus/README.md "Manual Installation & Migration"）：
+# - 全项目把 vite 解析到 Vite+ 的 core 发行版（vp 各命令与插件共享同一份 vite）
+# - vitest 固定为 vp 内置版本，避免出现两份 Vitest 内部状态分裂
+overrides:
+  vite: npm:@voidzero-dev/vite-plus-core@latest
+  vitest: 4.1.10

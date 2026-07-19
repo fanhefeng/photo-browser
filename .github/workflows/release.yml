@@ -20,12 +20,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9 # 对应 pnpm-lock.yaml 的 lockfileVersion 9.0
+          version: 11 # 与本地一致；pnpm-workspace.yaml 的 overrides 需要 pnpm 10+ 才认
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # vite-plus engines 下限是 20.19，留出余量
           cache: pnpm
 
       - name: Setup Rust

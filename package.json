@@ -1,18 +1,17 @@
 {
   "name": "photo-browser",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
+    "dev": "vp dev",
+    "build": "vp check && vp build",
+    "preview": "vp preview",
     "tauri": "tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.1",
-    "@tauri-apps/plugin-opener": "^2",
     "i18next": "^26.3.1",
     "i18next-browser-languagedetector": "^8.2.1",
     "react": "^19.1.0",
@@ -22,10 +21,13 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "@types/node": "^26.1.1",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
-    "@vitejs/plugin-react": "^4.6.0",
-    "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "@vitejs/plugin-react": "^6.0.3",
+    "@voidzero-dev/vite-plus-core": "^0.2.5",
+    "typescript": "~7.0.2",
+    "vite": "^8.1.5",
+    "vite-plus": "^0.2.5"
   }
 }
