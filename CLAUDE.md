@@ -12,15 +12,22 @@ README.md 含完整的功能/目录布局说明（中文），本文件聚焦需
 pnpm install
 pnpm tauri dev      # 开发运行（debug 构建 = dev 环境，目录后缀 -dev）
 pnpm tauri build    # 打包 .app/.dmg（release 构建 = prod 环境）
-pnpm build          # 仅前端：tsc 类型检查 + vite 构建
+pnpm build          # 仅前端：vp check（oxlint + tsgolint 类型检查）+ vp build
+pnpm exec vp check  # 单跑静态检查（lint + 类型检查；格式化暂关，见 vite.config.ts 的 check.fmt）
+```
 
-# Rust 单测（src-tauri/src/{db,media}.rs 内的 #[cfg(test)] 模块）
+前端工具链是 **Vite+（vp，VoidZero 全家桶）**：TypeScript 7（原生 Go tsc）、Vite 8（Rolldown + OXC）、oxlint/tsgolint。
+配置集中在 `vite.config.ts`（`defineConfig` 从 **vite-plus** 导入，含 `lint`/`check` 块）；
+`pnpm-workspace.yaml` 的 overrides 把 `vite` 别名到 `@voidzero-dev/vite-plus-core`——**别删这个文件**（之前删过一次是因为语法写坏，现在是 Vite+ 接线的必要部分）。
+
+```bash
+# Rust 单测（src-tauri/src/{db,media,viewer}.rs 内的 #[cfg(test)] 模块）
 cd src-tauri && cargo test
 cargo test purge_outside_root           # 跑单个测试
 cargo clippy                            # lint
 ```
 
-前端无独立测试框架；`pnpm build` 的 `tsc` 即类型检查关。`RUST_LOG=debug` 可覆盖日志级别。
+前端无独立测试框架；`pnpm build` 的 `vp check` 即类型检查关。`RUST_LOG=debug` 可覆盖日志级别。
 
 ## 架构要点（非显而易见）
 
@@ -38,6 +45,8 @@ cargo clippy                            # lint
 
 **扫描的并发与取消**：`AppState.scanning`（`AtomicBool`）拒绝并发扫描；`AppState.cancel`（`Arc<AtomicBool>`）在 rayon 并行循环里被轮询。取消时保留已处理部分，但**跳过删除/清理步骤**（扫描不完整，删除不可靠）。进度通过 `scan-progress`/`scan-done` 事件上报，前端在 `App.tsx` 用 `listen` 订阅。
 
+**查看器模式（"打开方式"进入的独立窗口）**：macOS 冷启动双击文件时 `RunEvent::Opened` **先于 setup** 到达（tao 源码确证的时序），所以路径缓冲 `OpenState` 必须用 `Builder::manage` 在 build 阶段注册，`Opened` 回调只 push 缓冲绝不建窗；setup 依据缓冲是否非空决定开 `viewer` 还是 `main` 窗口。前端 `main.tsx` 按窗口 label 分流渲染 `ViewerApp`/`App`。取件用"拉"模型（`take_pending_open` 命令），事件丢失也不丢路径。查看器不依赖索引：`viewer.rs` 的命令全部以路径为中心（`list_siblings` 自然排序、`viewer_item` 元数据、`viewer_trash` 废纸篓+清索引缓存）。HEIC 等先让 WebView 原生解码，`onError` 才走 `viewer_preview`（sips 全分辨率转码到 `cache/viewer/`，由 `vpreview://` 协议服务，与 previews/ 隔离——后者会被扫描与版本迁移随时清掉）。打开的文件目录通过 `asset_protocol_scope().allow_directory` 动态放行（原始 + canonicalize 双份）。**坑：`capabilities/default.json` 的 `windows` 数组必须包含 `"viewer"`**，否则新窗口没有任何 core 权限（`window.close()`、事件监听、拖窗全部静默失效，自定义命令倒是不受 ACL 管所以看起来"半好半坏"）。dev 下文件关联不生效，用 argv 模拟：`target/debug/photo-browser <文件路径>`。查看器窗口是 Quick Look 式深色玻璃 UI：原生红绿灯用 objc2 `standardWindowButton`+`setHidden` 隐藏（`hide_native_window_buttons`，仅 viewer 窗口），关闭/全屏按钮由前端自绘但行为走原生 API（红绿灯样式无公开定制接口，只能隐藏后仿原生）；全屏检测靠 `onResized`→`isFullscreen()`，全屏时顶栏隐藏、底部浮出玻璃胶囊。
+
 ## 模块职责
 
 **Rust（`src-tauri/src/`）**
@@ -45,14 +54,16 @@ cargo clippy                            # lint
 - `db.rs` — SQLite schema、`query`/`facets`/`upsert_media`/增量与清理逻辑、`Filter`/`Facets` 类型。SQL 注入防护用 `like_escape`。
 - `media.rs` — 文件 → `MediaItem`：EXIF 解析（kamadak-exif）、缩略图与预览生成（`image` crate / `sips`）、视频元数据与封面抽帧（`ffprobe`/`ffmpeg`）、EXIF 方向校正、GPS（ISO6709/8601）解析。
 - `cache.rs` — 按**环境**（dev/prod，由 `cfg!(debug_assertions)` 判定）与平台隔离的三类目录（数据/缓存/日志）路径解析。
+- `viewer.rs` — 查看器命令（同目录列表/元数据/全分辨率转码/移废纸篓），全部以路径为中心、不依赖索引。
 - `logging.rs` — `tracing` + 按天滚动日志文件。
 
 **前端（`src/`）**
 - `App.tsx` — 顶层状态与编排（目录、筛选、扫描进度、大图索引）；`refresh` 带防抖，扫描完成靠 `reloadKey` 触发重查。
 - `api.ts` — 所有 `invoke` 命令封装 + 图片/视频 URL 构造器（与后端命令一一对应）。
 - `types.ts` — `MediaItem`/`Filter`/`Facets`，须与 `db.rs`/`media.rs` 的 serde 结构保持字段一致。
-- `components/` — `Toolbar`（筛选/排序/搜索/扫描）、`Sidebar`（分面）、`PhotoGrid`（react-virtuoso 虚拟滚动）、`Lightbox`（大图，懒加载预览 + 相邻预热）。
-- `hooks/useZoom.ts` — 大图滚轮缩放（以光标为锚）、双击、拖拽平移。
+- `ViewerApp.tsx` — 查看器窗口的顶层组件（兄弟列表/键盘/删除/信息面板），与 `App` 互不依赖。
+- `components/` — `Toolbar`（筛选/排序/搜索/扫描）、`Sidebar`（分面）、`PhotoGrid`（react-virtuoso 虚拟滚动）、`Lightbox`（大图，懒加载预览 + 相邻预热）、`media.tsx`（Lightbox 与查看器共享的 `VideoStage`/`ZoomBar`/`DetailPanel`）。
+- `hooks/useZoom.ts` — 大图滚轮缩放（以光标为锚）、双击、拖拽平移；`zoomTo` 支持查看器 1:1 绝对缩放（可 <1）。
 
 ## 改动时的连带约束
 
