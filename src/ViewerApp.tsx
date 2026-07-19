@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
-import i18n from "./i18n";
+import i18n, { translateBackendError } from "./i18n";
 import "./App.css";
 
 import type { MediaItem } from "./types";
@@ -78,17 +78,23 @@ export default function ViewerApp() {
     setScale100(null);
   }, [current?.path]);
 
+  // 请求序号：两次打开并发时只采纳最新一次的响应（慢目录的旧响应可能后到）
+  const openSeq = useRef(0);
+
   // 打开（或切换到）一个文件：重建兄弟列表并定位
   const openFile = useCallback(async (path: string) => {
+    const seq = ++openSeq.current;
     try {
       const s = await listSiblings(path);
+      if (seq !== openSeq.current) return; // 过期响应，用户已打开了别的文件
       detailCache.current.clear();
       setItems(s.items);
       setIndex(s.index);
       setEmpty(s.items.length === 0);
       setError(null);
     } catch (e) {
-      setError(String(e));
+      if (seq !== openSeq.current) return;
+      setError(translateBackendError(e));
     }
   }, []);
 
@@ -107,6 +113,9 @@ export default function ViewerApp() {
         .catch(() => {});
     void pull();
     const unOpen = listen("viewer-open-pending", pull);
+    // 监听注册完成后补拉一次：事件若恰好在"首拉之后、注册完成之前"发出会丢失，
+    // 缓冲里的路径就一直不显示（拉模型保证路径不丢，但需要这次补拉去取）
+    void unOpen.then(() => pull());
     return () => {
       void unLocale.then((f) => f());
       void unOpen.then((f) => f());
@@ -193,7 +202,10 @@ export default function ViewerApp() {
       else if (e.key === "ArrowRight" && !onVideo)
         setIndex((i) => Math.min(items.length - 1, i + 1));
       else if (e.key === "i" || e.key === "I") setShowInfo((v) => !v);
-      else if (e.key === "Backspace" || e.key === "Delete") void handleTrash();
+      // !e.repeat：按住不放会以系统重复率连发 keydown，每次上一个删除完成后
+      // 又通过 trashing 守卫开始删下一张——一次误按住会连删多个文件
+      else if ((e.key === "Backspace" || e.key === "Delete") && !e.repeat)
+        void handleTrash();
       else if (e.key === "Escape") {
         // 全屏时 Esc 先退出全屏（与原生一致），窗口模式才关闭
         if (fullscreen) getCurrentWindow().setFullscreen(false).catch(() => {});

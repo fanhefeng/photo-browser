@@ -105,7 +105,8 @@
   "error": {
     "loadFailed": "加载照片失败：{{msg}}",
     "scanFailed": "扫描失败：{{msg}}",
-    "filesUnprocessed": "{{count}} 个文件未能处理（详情见日志目录）"
+    "filesUnprocessed": "{{count}} 个文件未能处理（详情见日志目录）",
+    "dirsUnreadable": "{{count}} 个项目无法读取已跳过（其中的旧条目未清理）"
   },
   "common": {
     "dash": "—",
@@ -114,6 +115,7 @@
   },
   "backend": {
     "scanInProgress": "已有扫描正在进行，请稍候",
-    "notDirectory": "所选路径不是有效目录"
+    "notDirectory": "所选路径不是有效目录",
+    "readFailed": "读取文件失败"
   }
 }

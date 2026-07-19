@@ -47,8 +47,19 @@ export function getFacets(root?: string): Promise<Facets> {
   return invoke<Facets>("get_facets", { root: root ?? null });
 }
 
+/** 同一 id 的在途请求合并为一次调用：Lightbox 每次导航会为当前图与相邻
+ *  预热重复请求同一张，不合并则同一张图被并发解码多次（并发上限见后端信号量）。 */
+const previewInflight = new Map<string, Promise<boolean>>();
+
 export function ensurePreview(id: string): Promise<boolean> {
-  return invoke<boolean>("ensure_preview", { id });
+  let p = previewInflight.get(id);
+  if (!p) {
+    p = invoke<boolean>("ensure_preview", { id }).finally(() => {
+      previewInflight.delete(id);
+    });
+    previewInflight.set(id, p);
+  }
+  return p;
 }
 
 export function revealInFinder(path: string): Promise<void> {

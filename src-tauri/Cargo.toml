@@ -1,6 +1,6 @@
 [package]
 name = "photo-browser"
-version = "0.4.0"
+version = "0.4.1"
 description = "本地优先的 macOS 照片/视频浏览器（Tauri 2 + React）"
 authors = ["fhf"]
 edition = "2021"
@@ -27,6 +27,8 @@ kamadak-exif = "0.5"
 image = "0.25"
 rusqlite = { version = "0.32", features = ["bundled"] }
 rayon = "1"
+# 仅用 sync（ensure_preview 的并发限流信号量）；运行时复用 tauri 自带的 tokio
+tokio = { version = "1", features = ["sync"] }
 blake3 = "1"
 dirs = "5"
 chrono = "0.4"

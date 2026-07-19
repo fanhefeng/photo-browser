@@ -24,4 +24,11 @@ void i18n
     },
   });
 
+/** 后端命令 reject 的值可能是 i18n key（如 backend.notDirectory）：
+ *  仅当确为已知 key 时才翻译，否则原样返回（真实错误文案不能丢）。 */
+export function translateBackendError(e: unknown): string {
+  const raw = String(e);
+  return i18n.exists(raw) ? i18n.t(raw) : raw;
+}
+
 export default i18n;

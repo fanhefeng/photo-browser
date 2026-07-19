@@ -50,7 +50,9 @@ cargo clippy                            # lint
 ## 模块职责
 
 **Rust（`src-tauri/src/`）**
-- `lib.rs` — Tauri 入口：`AppState`、所有 `#[tauri::command]`、自定义图片协议注册、原生菜单、扫描编排 `scan_impl`。
+- `lib.rs` — Tauri 入口：`AppState`、查询/预览等 `#[tauri::command]`、自定义图片协议注册、窗口创建、`generate_handler!` 注册所有命令。
+- `scan.rs` — 扫描编排 `scan_impl` 与 `scan_directory`/`cancel_scan` 命令（状态仍由 lib.rs 的 `AppState` 持有）。
+- `menu.rs` — 原生菜单构建/事件与 `set_locale` 命令。
 - `db.rs` — SQLite schema、`query`/`facets`/`upsert_media`/增量与清理逻辑、`Filter`/`Facets` 类型。SQL 注入防护用 `like_escape`。
 - `media.rs` — 文件 → `MediaItem`：EXIF 解析（kamadak-exif）、缩略图与预览生成（`image` crate / `sips`）、视频元数据与封面抽帧（`ffprobe`/`ffmpeg`）、EXIF 方向校正、GPS（ISO6709/8601）解析。
 - `cache.rs` — 按**环境**（dev/prod，由 `cfg!(debug_assertions)` 判定）与平台隔离的三类目录（数据/缓存/日志）路径解析。

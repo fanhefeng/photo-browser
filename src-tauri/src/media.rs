@@ -25,6 +25,16 @@ pub fn is_media_ext(ext: &str) -> bool {
     PHOTO_EXTS.contains(&ext) || VIDEO_EXTS.contains(&ext)
 }
 
+/// 按扩展名（须已小写）判定媒体类型，"photo" | "video"。
+/// kind 判定的唯一出处：build_media_meta 与查看器的兄弟列表都用它。
+pub fn kind_for_ext(ext: &str) -> &'static str {
+    if VIDEO_EXTS.contains(&ext) {
+        "video"
+    } else {
+        "photo"
+    }
+}
+
 /// 视频元数据/封面所需的外部工具（ffprobe + ffmpeg）是否就绪。
 pub fn has_video_tools() -> bool {
     tool_ok("ffprobe") && tool_ok("ffmpeg")
@@ -191,7 +201,7 @@ pub fn build_media_meta(path: &Path) -> Option<MediaItem> {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
 
-    let is_video = VIDEO_EXTS.contains(&ext.as_str());
+    let is_video = kind_for_ext(&ext) == "video";
     let mut photo = MediaItem {
         id: id.clone(),
         path: path.to_string_lossy().to_string(),
@@ -204,7 +214,7 @@ pub fn build_media_meta(path: &Path) -> Option<MediaItem> {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default(),
         ext: ext.clone(),
-        kind: if is_video { "video".into() } else { "photo".into() },
+        kind: kind_for_ext(&ext).into(),
         file_size: meta.len() as i64,
         mtime,
         ..Default::default()
@@ -215,12 +225,12 @@ pub fn build_media_meta(path: &Path) -> Option<MediaItem> {
     } else {
         parse_exif(path, &mut photo);
 
-        // 尺寸：EXIF 没给的话用 image 读文件头（很轻量）
-        if photo.width.is_none() {
-            if let Ok((w, h)) = image::image_dimensions(path) {
-                photo.width = Some(w as i64);
-                photo.height = Some(h as i64);
-            }
+        // 尺寸：以文件头实际解码的尺寸为准（编辑工具改了像素但常遗留过期的
+        // EXIF PixelXDimension）；image 读不了的格式（HEIC/AVIF 等）退回 EXIF 值。
+        // image_dimensions 只读文件头，很轻量。
+        if let Ok((w, h)) = image::image_dimensions(path) {
+            photo.width = Some(w as i64);
+            photo.height = Some(h as i64);
         }
         // 旋转 90/270 的照片：存储宽高需交换，才能与可视方向（及缩略图）一致
         if matches!(photo.orientation, Some(5) | Some(6) | Some(7) | Some(8)) {
@@ -404,7 +414,41 @@ fn parse_iso8601(s: &str) -> Option<i64> {
         })
 }
 
-/// 解析 ISO6709 坐标串（如 "+37.7858-122.4064+010.000/"）为 (lat, lon)
+/// 解析 ISO6709 的单个坐标分量。标准允许三种形式，按整数位数区分：
+/// 纬度 DD / DDMM / DDMMSS，经度 DDD / DDDMM / DDDMMSS（小数位任意）。
+/// 直接 parse 成 f64 只对十进制度数形式正确，度分/度分秒必须换算。
+/// 标准要求度数补零，但现实中有编码器不补（Android 以 %+.4f 写坐标）；
+/// 1 位整数不可能是度分形式，无歧义，一并按十进制度数接受。
+fn parse_iso6709_component(s: &str) -> Option<f64> {
+    let (sign, digits) = match s.as_bytes().first()? {
+        b'+' => (1.0, &s[1..]),
+        b'-' => (-1.0, &s[1..]),
+        _ => (1.0, s),
+    };
+    let int_len = digits.find('.').unwrap_or(digits.len());
+    let val: f64 = digits.parse().ok()?;
+    let deg = match int_len {
+        // D / DD / DDD：十进制度数
+        1..=3 => val,
+        // DDMM / DDDMM：度 + 分
+        4 | 5 => {
+            let d = (val / 100.0).trunc();
+            d + (val - d * 100.0) / 60.0
+        }
+        // DDMMSS / DDDMMSS：度 + 分 + 秒
+        6 | 7 => {
+            let d = (val / 10_000.0).trunc();
+            let rem = val - d * 10_000.0; // MMSS.S
+            let m = (rem / 100.0).trunc();
+            d + m / 60.0 + (rem - m * 100.0) / 3600.0
+        }
+        _ => return None,
+    };
+    Some(sign * deg)
+}
+
+/// 解析 ISO6709 坐标串（如 "+37.7858-122.4064+010.000/"）为 (lat, lon)。
+/// 越界坐标（|lat|>90 / |lon|>180，多为无法识别的变体格式）拒绝而非入库。
 fn parse_iso6709(s: &str) -> Option<(f64, f64)> {
     let s = s.trim();
     // 找到第二个符号位置切分纬度/经度
@@ -417,15 +461,15 @@ fn parse_iso6709(s: &str) -> Option<(f64, f64)> {
         }
     }
     let split = split?;
-    let lat: f64 = s[..split].parse().ok()?;
+    let lat = parse_iso6709_component(&s[..split])?;
     let rest = &s[split..];
     // 经度到下一个符号或 '/' 结束
     let lon_end = rest[1..]
         .find(['+', '-', '/'])
         .map(|i| i + 1)
         .unwrap_or(rest.len());
-    let lon: f64 = rest[..lon_end].parse().ok()?;
-    Some((lat, lon))
+    let lon = parse_iso6709_component(&rest[..lon_end])?;
+    (lat.abs() <= 90.0 && lon.abs() <= 180.0).then_some((lat, lon))
 }
 
 /// 懒生成大图预览（打开大图时调用），返回是否成功。
@@ -604,13 +648,16 @@ fn get_u32(exif: &exif::Exif, tag: Tag) -> Option<u32> {
     field.value.get_uint(0)
 }
 
+/// 损坏 EXIF 的分母可能为 0（n/0 → inf、0/0 → NaN），NaN/inf 一旦写进
+/// DB 的 REAL 列会破坏排序/筛选，这里一律拒绝。
 fn get_rational_f64(exif: &exif::Exif, tag: Tag) -> Option<f64> {
     let field = exif.get_field(tag, In::PRIMARY)?;
-    match &field.value {
-        Value::Rational(v) if !v.is_empty() => Some(v[0].to_f64()),
-        Value::SRational(v) if !v.is_empty() => Some(v[0].to_f64()),
+    let val = match &field.value {
+        Value::Rational(v) if !v.is_empty() => (v[0].denom != 0).then(|| v[0].to_f64()),
+        Value::SRational(v) if !v.is_empty() => (v[0].denom != 0).then(|| v[0].to_f64()),
         _ => None,
-    }
+    }?;
+    val.is_finite().then_some(val)
 }
 
 /// 快门速度：ExposureTime 是一个有理数，格式化为 "1/200" 或 "2s"
@@ -618,7 +665,8 @@ fn get_shutter(exif: &exif::Exif) -> Option<String> {
     let field = exif.get_field(Tag::ExposureTime, In::PRIMARY)?;
     if let Value::Rational(v) = &field.value {
         if let Some(r) = v.first() {
-            if r.num == 0 {
+            // 分母为 0 的损坏值会算出 inf，格式化成 "infs" 展示出去
+            if r.num == 0 || r.denom == 0 {
                 return None;
             }
             let secs = r.to_f64();
@@ -688,6 +736,38 @@ mod tests {
         let (lat, lon) = parse_iso6709("-33.8688+151.2093/").unwrap();
         assert!((lat + 33.8688).abs() < 1e-6);
         assert!((lon - 151.2093).abs() < 1e-6);
+    }
+
+    #[test]
+    fn iso6709_degrees_minutes() {
+        // 度分形式（DDMM.MMM）：40°43.554' N, 73°59.383' W（纽约）
+        let (lat, lon) = parse_iso6709("+4043.554-07359.383/").unwrap();
+        assert!((lat - (40.0 + 43.554 / 60.0)).abs() < 1e-6);
+        assert!((lon + (73.0 + 59.383 / 60.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn iso6709_degrees_minutes_seconds() {
+        // 度分秒形式（DDMMSS.S）：40°43'33.5" N, 73°59'23.0" W
+        let (lat, lon) = parse_iso6709("+404333.5-0735923.0/").unwrap();
+        assert!((lat - (40.0 + 43.0 / 60.0 + 33.5 / 3600.0)).abs() < 1e-6);
+        assert!((lon + (73.0 + 59.0 / 60.0 + 23.0 / 3600.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn iso6709_unpadded_single_digit_degrees() {
+        // 标准要求补零，但 Android MPEG4Writer 以 %+.4f 写坐标不补零；
+        // 1 位整数不可能是度分形式，必须按十进制度数接受（新加坡：1.3521N 103.8198E）
+        let (lat, lon) = parse_iso6709("+1.3521+103.8198/").unwrap();
+        assert!((lat - 1.3521).abs() < 1e-6);
+        assert!((lon - 103.8198).abs() < 1e-6);
+    }
+
+    #[test]
+    fn iso6709_rejects_out_of_range() {
+        // 无法识别的变体解出越界坐标时必须拒绝，而非把 lat>90 写进库
+        assert!(parse_iso6709("+91.5-122.4/").is_none());
+        assert!(parse_iso6709("+37.78-181.0/").is_none());
     }
 
     #[test]

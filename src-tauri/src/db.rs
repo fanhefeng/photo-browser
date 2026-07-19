@@ -78,19 +78,22 @@ fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
 
 }
 
-/// 读取**当前 root 目录下**已有照片的 (id -> mtime)，用于增量扫描时跳过未改动文件、
-/// 以及计算哪些文件已被删除。按 root 限定可避免扫描新目录时误删其他目录的索引。
-pub fn existing_mtimes(conn: &Connection, root: &str) -> rusqlite::Result<HashMap<String, i64>> {
-    let mut stmt = conn.prepare("SELECT id, mtime FROM photos WHERE path LIKE ? ESCAPE '\\'")?;
-    let rows = stmt.query_map([root_like_pattern(root)], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+/// 读取**当前 root 目录下**已有照片的 (id -> (mtime, path))，用于增量扫描时
+/// 跳过未改动文件、以及计算哪些文件已被删除（path 让扫描能把遍历出错的
+/// 子树排除在"已删除"判定之外）。按 root 限定可避免扫描新目录时误删其他目录的索引。
+pub fn existing_mtimes(
+    conn: &Connection,
+    root: &str,
+) -> rusqlite::Result<HashMap<String, (i64, String)>> {
+    let mut stmt =
+        conn.prepare(&format!("SELECT id, mtime, path FROM photos WHERE {UNDER_PREFIX_SQL}"))?;
+    let rows = stmt.query_map([root_prefix(root)], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            (r.get::<_, i64>(1)?, r.get::<_, String>(2)?),
+        ))
     })?;
-    let mut map = HashMap::new();
-    for row in rows {
-        let (id, mtime) = row?;
-        map.insert(id, mtime);
-    }
-    Ok(map)
+    rows.collect()
 }
 
 /// 批量写入（UPSERT）照片记录，单事务以保证速度。
@@ -127,14 +130,18 @@ pub fn upsert_media(conn: &mut Connection, photos: &[MediaItem]) -> rusqlite::Re
 /// 删除不在指定 root 目录下的所有记录，返回被删 id（用于清理其缓存文件）。
 /// 用于贯彻“单目录”语义：切换/扫描新目录时，把上一目录的索引清出，避免隐形堆积。
 pub fn purge_outside_root(conn: &mut Connection, root: &str) -> rusqlite::Result<Vec<String>> {
-    let pattern = root_like_pattern(root);
+    let prefix = root_prefix(root);
     let ids: Vec<String> = {
-        let mut stmt = conn.prepare("SELECT id FROM photos WHERE path NOT LIKE ? ESCAPE '\\'")?;
-        let rows = stmt.query_map([&pattern], |r| r.get::<_, String>(0))?;
+        let mut stmt =
+            conn.prepare(&format!("SELECT id FROM photos WHERE NOT ({UNDER_PREFIX_SQL})"))?;
+        let rows = stmt.query_map([&prefix], |r| r.get::<_, String>(0))?;
         rows.collect::<rusqlite::Result<_>>()?
     };
     if !ids.is_empty() {
-        conn.execute("DELETE FROM photos WHERE path NOT LIKE ? ESCAPE '\\'", [&pattern])?;
+        conn.execute(
+            &format!("DELETE FROM photos WHERE NOT ({UNDER_PREFIX_SQL})"),
+            [&prefix],
+        )?;
     }
     Ok(ids)
 }
@@ -204,10 +211,24 @@ fn like_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
-/// 目录前缀模式：限定为该目录“下”的文件（带分隔符），避免 `/a/Photos`
+/// path 位于某目录前缀之下的 SQL 谓词，参数由 `root_prefix` 生成。
+/// `instr(path, ?) = 1` 做**精确**（区分大小写）前缀比较而非 LIKE：
+/// SQLite 的 LIKE 对 ASCII 大小写不敏感，在大小写敏感卷上会把
+/// `/data/photos` 与 `/data/Photos` 混为一谈，导致误删/误查其他目录的索引。
+/// 且 instr 只需绑定一个参数，顺序 `?`（build_where）与独立查询都能复用同一拼写。
+const UNDER_PREFIX_SQL: &str = "instr(path, ?) = 1";
+
+/// 目录前缀：限定为该目录“下”的文件（带分隔符），避免 `/a/Photos`
 /// 误匹配到 `/a/PhotosBackup`。
-fn root_like_pattern(root: &str) -> String {
-    format!("{}/%", like_escape(root.trim_end_matches('/')))
+/// 先 canonicalize：索引里存的是规范拼写（扫描入口已归一），查询侧传来的
+/// root 无论哪种拼写（/tmp vs /private/tmp）都须落到同一前缀；
+/// 路径不存在（如测试的虚构路径）时原样保留。
+fn root_prefix(root: &str) -> String {
+    let root = std::path::Path::new(root)
+        .canonicalize()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| root.to_string());
+    format!("{}/", root.trim_end_matches('/'))
 }
 
 /// 把 Filter 编译成 SQL 的 WHERE 子句与参数。
@@ -217,8 +238,8 @@ fn build_where(f: &Filter) -> (String, Vec<Box<dyn ToSql>>) {
 
     if let Some(root) = &f.root {
         if !root.is_empty() {
-            clauses.push("path LIKE ? ESCAPE '\\'".into());
-            args.push(Box::new(root_like_pattern(root)));
+            clauses.push(UNDER_PREFIX_SQL.into());
+            args.push(Box::new(root_prefix(root)));
         }
     }
     if let Some(t) = &f.text {
@@ -448,14 +469,65 @@ mod tests {
     }
 
     #[test]
-    fn root_pattern_appends_separator() {
+    fn root_prefix_appends_separator() {
         // 带/不带尾斜杠都归一化为“目录下”
-        assert_eq!(root_like_pattern("/a/Photos/"), "/a/Photos/%");
-        assert_eq!(root_like_pattern("/a/Photos"), "/a/Photos/%");
-        // 不会误匹配兄弟目录 PhotosBackup（因为多了分隔符）
-        assert!(!root_like_pattern("/a/Photos").contains("PhotosBackup"));
-        // 路径里的元字符被转义
-        assert_eq!(root_like_pattern("/a/p%x"), "/a/p\\%x/%");
+        assert_eq!(root_prefix("/a/Photos/"), "/a/Photos/");
+        assert_eq!(root_prefix("/a/Photos"), "/a/Photos/");
+        // 精确比较无需转义，元字符原样保留
+        assert_eq!(root_prefix("/a/p%x"), "/a/p%x/");
+    }
+
+    #[test]
+    fn root_scoping_is_case_sensitive() {
+        // 大小写敏感卷上 /lib/photos 与 /lib/Photos 是不同目录，
+        // root 限定必须区分（LIKE 的 ASCII 不敏感匹配会混淆二者）
+        let mut conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        upsert_media(
+            &mut conn,
+            &[
+                item("upper", "/lib/Photos/1.jpg", "photo", "jpg"),
+                item("lower", "/lib/photos/1.jpg", "photo", "jpg"),
+            ],
+        )
+        .unwrap();
+
+        let existing = existing_mtimes(&conn, "/lib/photos").unwrap();
+        assert!(existing.contains_key("lower"));
+        assert!(!existing.contains_key("upper"));
+
+        let found = query(
+            &conn,
+            &Filter {
+                root: Some("/lib/photos".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].id, "lower");
+
+        // purge 只保留当前 root（大小写不同的目录会被清出，属预期的“单目录”语义）
+        let purged = purge_outside_root(&mut conn, "/lib/photos").unwrap();
+        assert_eq!(purged, vec!["upper".to_string()]);
+    }
+
+    #[test]
+    fn root_prefix_no_sibling_false_match() {
+        // /a/Photos 不会误匹配 /a/PhotosBackup（前缀带分隔符）
+        let mut conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        upsert_media(
+            &mut conn,
+            &[
+                item("in", "/a/Photos/1.jpg", "photo", "jpg"),
+                item("out", "/a/PhotosBackup/1.jpg", "photo", "jpg"),
+            ],
+        )
+        .unwrap();
+        let existing = existing_mtimes(&conn, "/a/Photos").unwrap();
+        assert!(existing.contains_key("in"));
+        assert!(!existing.contains_key("out"));
     }
 
     #[test]

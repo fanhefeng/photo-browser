@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
-import i18n from "./i18n";
+import i18n, { translateBackendError } from "./i18n";
 import "./App.css";
 
 import type { Facets, Filter, MediaItem } from "./types";
@@ -78,18 +78,22 @@ export default function App() {
       total_files: number;
       cancelled: boolean;
       failed: number;
+      walk_errors: number;
     }>("scan-done", (e) => {
       setScanning(false);
       setProgress(null);
       setReloadKey((k) => k + 1);
       const failed = e.payload?.failed ?? 0;
+      const walkErrors = e.payload?.walk_errors ?? 0;
       const cancelled = e.payload?.cancelled ?? false;
-      // 取消时不提示失败数（取消的扫描本就不完整）
-      setNotice(
-        !cancelled && failed > 0
-          ? i18n.t("error.filesUnprocessed", { count: failed })
-          : null
-      );
+      // 取消时不提示失败/跳过数（取消的扫描本就不完整）
+      const notices = cancelled
+        ? []
+        : [
+            failed > 0 ? i18n.t("error.filesUnprocessed", { count: failed }) : null,
+            walkErrors > 0 ? i18n.t("error.dirsUnreadable", { count: walkErrors }) : null,
+          ].filter((s): s is string => s !== null);
+      setNotice(notices.length > 0 ? notices.join(" ") : null);
     });
     // 查看器窗口里删除了文件：刷新网格（未打开目录时 reloadKey 变化无副作用）
     const unlistenTrashed = listen("media-trashed", () => setReloadKey((k) => k + 1));
@@ -162,10 +166,7 @@ export default function App() {
     setScanning(true);
     setProgress({ done: 0, total: 0 });
     scanDirectory(dir).catch((err) => {
-      // err 可能是后端返回的 i18n key（如 backend.notDirectory）；仅当确为已知 key 时才翻译
-      const raw = String(err);
-      const msg = i18n.exists(raw) ? i18n.t(raw) : raw;
-      setError(i18n.t("error.scanFailed", { msg }));
+      setError(i18n.t("error.scanFailed", { msg: translateBackendError(err) }));
       setScanning(false);
       setProgress(null);
     });

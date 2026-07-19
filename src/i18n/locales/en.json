@@ -106,7 +106,8 @@
   "error": {
     "loadFailed": "Failed to load photos: {{msg}}",
     "scanFailed": "Scan failed: {{msg}}",
-    "filesUnprocessed": "{{count}} file(s) could not be processed (see the logs folder)"
+    "filesUnprocessed": "{{count}} file(s) could not be processed (see the logs folder)",
+    "dirsUnreadable": "{{count}} item(s) could not be read and were skipped (their stale entries were not cleaned up)"
   },
   "common": {
     "dash": "—",
@@ -115,6 +116,7 @@
   },
   "backend": {
     "scanInProgress": "A scan is already in progress, please wait",
-    "notDirectory": "The selected path is not a valid directory"
+    "notDirectory": "The selected path is not a valid directory",
+    "readFailed": "Failed to read the file"
   }
 }

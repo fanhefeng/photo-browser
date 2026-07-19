@@ -48,23 +48,18 @@ pub fn list_siblings(path: String) -> Result<Siblings, String> {
             if !media::is_media_ext(&ext) {
                 return None;
             }
-            let kind = if media::VIDEO_EXTS.contains(&ext.as_str()) {
-                "video"
-            } else {
-                "photo"
-            };
             Some(SiblingItem {
                 path: p.to_string_lossy().to_string(),
                 filename: name,
+                kind: media::kind_for_ext(&ext).into(),
                 ext,
-                kind: kind.into(),
             })
         })
         .collect();
     items.sort_by(|a, b| natural_cmp(&a.filename, &b.filename));
 
     // 定位打开的文件：先精确比路径；不一致（符号链接等）再按 canonicalize 比
-    let index = items
+    let located = items
         .iter()
         .position(|it| it.path == path)
         .or_else(|| {
@@ -72,8 +67,37 @@ pub fn list_siblings(path: String) -> Result<Siblings, String> {
             items
                 .iter()
                 .position(|it| Path::new(&it.path).canonicalize().ok().as_deref() == Some(&canon))
-        })
-        .unwrap_or(0);
+        });
+    // 打开的文件被列表过滤掉了（隐藏文件如 .pano.jpg / ._xxx.jpg）：
+    // 单独插入到自然排序位置——绝不能静默回落到第 0 项显示别的文件。
+    let index = match located {
+        Some(i) => i,
+        None if file.is_file() => {
+            let filename = file
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let ext = file
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_lowercase())
+                .unwrap_or_default();
+            let pos = items
+                .partition_point(|it| natural_cmp(&it.filename, &filename) == Ordering::Less);
+            items.insert(
+                pos,
+                SiblingItem {
+                    path: path.clone(),
+                    filename,
+                    kind: media::kind_for_ext(&ext).into(),
+                    ext,
+                },
+            );
+            pos
+        }
+        // 文件已不存在（打开与列目录之间被删）：保持旧行为回落 0
+        None => 0,
+    };
     tracing::info!(dir = %dir.display(), count = items.len(), index, "查看器：列出同目录媒体");
     Ok(Siblings { items, index })
 }
@@ -95,6 +119,11 @@ pub async fn viewer_item(path: String) -> Result<MediaItem, String> {
 pub async fn viewer_preview(path: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let src = PathBuf::from(&path);
+        // 正常调用链只会传绝对路径；相对路径（如 "-x.heic"）会被 sips
+        // 当作命令行选项解析（参数注入），一律拒绝。
+        if !src.is_absolute() {
+            return Err("backend.readFailed".to_string());
+        }
         let id = media::media_id(&src);
         let dst = cache::viewer_file(&id);
         let src_mtime = std::fs::metadata(&src)

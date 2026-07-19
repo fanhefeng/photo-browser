@@ -40,11 +40,26 @@ fn lock_db(db: &Mutex<rusqlite::Connection>) -> std::sync::MutexGuard<'_, rusqli
     db.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// 打开索引库；失败（多为库文件损坏）时把旧库挪到 .corrupt 后重建。
-/// 索引本质是可再生缓存（重扫即可完全恢复），绝不能让损坏的库堵死启动。
+/// 错误是否为瞬时故障（并发持锁，稍后重试即自愈）。
+/// 只有瞬时错误才原样上抛：另一实例的扫描事务持锁导致的 SQLITE_BUSY
+/// 若误判成损坏走"改名重建"，会把健康的索引整个丢掉。
+/// 其余错误（损坏、坏掉的 -wal/-shm 伴生文件、legacy schema 迁移失败等）
+/// 一律视为持久性故障：索引是可再生缓存，重建总是安全的——反过来
+/// 把持久性故障当瞬时错误上抛，会让应用每次启动都失败且无法自愈。
+fn is_transient_db_error(e: &rusqlite::Error) -> bool {
+    matches!(
+        e.sqlite_error_code(),
+        Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
+    )
+}
+
+/// 打开索引库；持久性错误时把旧库挪到 .corrupt 后重建。
+/// 索引本质是可再生缓存（重扫即可完全恢复），绝不能让坏掉的库堵死启动；
+/// 但瞬时错误必须原样上抛，不能触发重建（见 is_transient_db_error）。
 fn open_db_with_recovery() -> Result<rusqlite::Connection, String> {
     match db::open() {
         Ok(conn) => Ok(conn),
+        Err(e) if is_transient_db_error(&e) => Err(format!("无法打开数据库: {e}")),
         Err(e) => {
             tracing::warn!(error = %e, "索引库打开失败，备份为 .corrupt 后重建");
             let p = cache::db_path();
@@ -83,17 +98,29 @@ fn take_pending_open(state: State<OpenState>) -> Vec<String> {
     paths
 }
 
-/// 把文件所在目录动态加入 asset 协议白名单（应对 $HOME / /Volumes 之外的路径）。
+/// 把目录动态加入 asset 协议白名单（应对 $HOME / /Volumes 之外的路径）。
 /// macOS 的 /tmp、/var 是 /private 下的符号链接，原始路径与 canonicalize 后都要放行。
-fn allow_asset_dir(app: &AppHandle, file: &Path) {
-    if let Some(dir) = file.parent() {
-        let _ = app.asset_protocol_scope().allow_directory(dir, false);
-        if let Ok(canon) = dir.canonicalize() {
-            if canon != dir {
-                let _ = app.asset_protocol_scope().allow_directory(&canon, false);
-            }
+fn allow_asset_scope(app: &AppHandle, dir: &Path, recursive: bool) {
+    let _ = app.asset_protocol_scope().allow_directory(dir, recursive);
+    if let Ok(canon) = dir.canonicalize() {
+        if canon != dir {
+            let _ = app.asset_protocol_scope().allow_directory(&canon, recursive);
         }
     }
+}
+
+/// 放行单个文件所在目录（不递归）——"打开方式"的查看器入口用。
+fn allow_asset_dir(app: &AppHandle, file: &Path) {
+    if let Some(dir) = file.parent() {
+        allow_asset_scope(app, dir, false);
+    }
+}
+
+/// 放行整棵目录树（递归）——扫描根目录用。tauri.conf.json 的静态 scope
+/// 只有 $HOME/** 与 /Volumes/**；用户可以选任意目录（如 /Users/Shared），
+/// 不放行则 Lightbox 里视频完全无法播放、原图静默降级为预览。
+pub(crate) fn allow_asset_tree(app: &AppHandle, dir: &Path) {
+    allow_asset_scope(app, dir, true);
 }
 
 /// 主浏览器窗口。红绿灯下移对齐工具栏中心；配色全部由前端 CSS 控制。
@@ -191,21 +218,31 @@ fn get_facets(state: State<AppState>, root: Option<String>) -> Result<Facets, St
     db::facets(&conn, &root).map_err(|e| e.to_string())
 }
 
+/// 并发预览生成的上限。全分辨率解码单张就要吃满数个核、峰值数百 MB 内存，
+/// 快速翻页时不设上限会在 blocking 池（默认 512 线程）里堆出成批并发解码。
+/// 3 = 当前图 + 左右预热各一个在途；同 id 去重由前端 api.ts 的在途合并负责。
+static PREVIEW_SEMAPHORE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(3);
+
 /// 懒生成大图预览，返回是否就绪。
+/// async + spawn_blocking：全分辨率解码/sips 转码耗时数百毫秒起，
+/// 同步命令会在主线程执行并冻结整个 UI（窗口拖动/菜单/渲染）。
 #[tauri::command]
-fn ensure_preview(state: State<AppState>, id: String) -> Result<bool, String> {
+async fn ensure_preview(state: State<'_, AppState>, id: String) -> Result<bool, String> {
     let item = {
         let conn = lock_db(&state.db);
         db::get_one(&conn, &id).map_err(|e| e.to_string())?
     };
     match item {
         // 视频不生成预览图（前端直接播放原始文件）
-        Some(p) if p.kind != "video" => Ok(media::ensure_preview(
-            Path::new(&p.path),
-            &p.id,
-            &p.ext,
-            p.orientation,
-        )),
+        Some(p) if p.kind != "video" => {
+            // 限流在 spawn_blocking 之外：排队等待的请求不占用 blocking 线程
+            let _permit = PREVIEW_SEMAPHORE.acquire().await.map_err(|e| e.to_string())?;
+            tauri::async_runtime::spawn_blocking(move || {
+                media::ensure_preview(Path::new(&p.path), &p.id, &p.ext, p.orientation)
+            })
+            .await
+            .map_err(|e| e.to_string())
+        }
         _ => Ok(false),
     }
 }
@@ -279,13 +316,17 @@ pub fn run() {
 
             // dev 模式下文件关联不生效：支持 argv 传媒体文件路径模拟"打开方式"
             // （pnpm tauri dev -- -- /path/to/xx.jpg）
+            // args_os + into_string：非 UTF-8 的 argv 直接跳过，std::env::args() 会 panic。
+            // canonicalize 让相对路径/符号链接在入口就归一（缓存 id、asset 放行都以此为准）。
             #[cfg(debug_assertions)]
-            if let Some(p) = std::env::args().skip(1).find(|a| {
-                let p = Path::new(a);
-                p.is_file() && has_media_ext(p)
-            }) {
-                allow_asset_dir(app.handle(), Path::new(&p));
-                lock_pending(&app.state::<OpenState>()).push(p);
+            if let Some(p) = std::env::args_os()
+                .skip(1)
+                .filter_map(|a| a.into_string().ok())
+                .filter_map(|a| Path::new(&a).canonicalize().ok())
+                .find(|p| p.is_file() && has_media_ext(p))
+            {
+                allow_asset_dir(app.handle(), &p);
+                lock_pending(&app.state::<OpenState>()).push(p.to_string_lossy().to_string());
             }
 
             // 双击文件冷启动时 macOS 的 Opened 事件先于 setup 到达（路径已在缓冲）：
@@ -331,6 +372,11 @@ pub fn run() {
                 let paths: Vec<String> = urls
                     .iter()
                     .filter_map(|u| u.to_file_path().ok())
+                    // 入口即 canonicalize：/tmp → /private/tmp 等拼写在此归一
+                    // （扫描 root 在 scan_impl 同样归一）。此后缓存 id / asset 放行 /
+                    // 索引清理都以规范拼写为准；viewer_trash 的双拼写清理仅为
+                    // 归一化之前建立的旧索引兜底，不可当作冗余删除。
+                    .map(|p| p.canonicalize().unwrap_or(p))
                     .filter(|p| has_media_ext(p))
                     .map(|p| p.to_string_lossy().to_string())
                     .collect();

@@ -52,16 +52,40 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
     if !Path::new(&root).is_dir() {
         return Err("backend.notDirectory".into());
     }
+    // 入口即 canonicalize（与 lib.rs 的查看器入口一致）：索引里只存规范拼写，
+    // 缓存 id、查看器删除、asset 放行不再面对同一文件的多种拼写。
+    let root = Path::new(&root)
+        .canonicalize()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or(root);
+    // 校验通过后才放行 asset 协议访问该目录树（被拒绝的路径不得进入 scope）：
+    // 静态 scope 之外的根（如 /Users/Shared）不放行则视频无法播放、原图降级。
+    crate::allow_asset_tree(&app, Path::new(&root));
     let cancel = app.state::<AppState>().cancel.clone();
     let mut conn = db::open().map_err(|e| {
         tracing::error!(error = %e, "打开数据库失败");
         e.to_string()
     })?;
 
-    // 1. 收集目录下所有媒体文件
+    // 1. 收集目录下所有媒体文件。遍历错误（TCC 权限、网络卷抖动等）必须记录：
+    //    出错子树不在 files 里，若照常执行步骤 5，其文件会被当作"已删除"误清索引。
+    //    记录出错的具体路径，把"不参与清理"的范围缩到出错子树——外置卷必带的
+    //    不可读 .Trashes 等系统目录若导致整体放弃清理，清理将永远无法执行。
+    let mut error_paths: Vec<PathBuf> = Vec::new();
+    let mut unscoped_errors = 0usize; // 定位不到路径的错误：无法限定范围，只能整体跳过清理
     let files: Vec<PathBuf> = WalkDir::new(&root)
         .into_iter()
-        .filter_map(|e| e.ok())
+        .filter_map(|e| match e {
+            Ok(entry) => Some(entry),
+            Err(err) => {
+                tracing::warn!(error = %err, "扫描：目录遍历出错，跳过该项");
+                match err.path() {
+                    Some(p) => error_paths.push(p.to_path_buf()),
+                    None => unscoped_errors += 1,
+                }
+                None
+            }
+        })
         .filter(|e| e.file_type().is_file())
         .map(|e| e.into_path())
         .filter(|p| has_media_ext(p))
@@ -81,7 +105,7 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
             match (cur_mtime, existing.get(&id)) {
                 // 读不到 mtime 一律重新处理：0 哨兵会与旧记录的 0 互相掩护、永不重扫
                 (None, _) => true,
-                (Some(cur), Some(&old)) => old != cur,
+                (Some(cur), Some((old, _))) => *old != cur,
                 (Some(_), None) => true,
             }
         })
@@ -116,14 +140,26 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
     }
 
     // 5. 清理已删除的文件——仅在未取消时执行（取消时扫描不完整，删除不可靠）。
-    //    `existing` 已限定在当前 root 下，不会误伤其他目录的索引。
+    //    遍历出错的子树同样不完整：其下的记录不参与"已删除"判定（按路径前缀排除），
+    //    树内其余部分照常清理。`existing` 已限定在当前 root 下，不会误伤其他目录。
     let cancelled = cancel.load(Ordering::Relaxed);
-    if !cancelled {
+    let walk_errors = error_paths.len() + unscoped_errors;
+    if walk_errors > 0 {
+        tracing::warn!(
+            scoped = error_paths.len(),
+            unscoped = unscoped_errors,
+            "扫描：目录遍历有错误，出错子树不参与已删除清理"
+        );
+    }
+    if !cancelled && unscoped_errors == 0 {
         let current_ids: HashSet<String> = files.iter().map(|p| media::media_id(p)).collect();
         let missing: Vec<String> = existing
-            .keys()
-            .filter(|id| !current_ids.contains(*id))
-            .cloned()
+            .iter()
+            .filter(|(id, _)| !current_ids.contains(*id))
+            .filter(|(_, (_, path))| {
+                !error_paths.iter().any(|ep| Path::new(path).starts_with(ep))
+            })
+            .map(|(id, _)| id.clone())
             .collect();
         if !missing.is_empty() {
             db::delete_ids(&mut conn, &missing).map_err(|e| e.to_string())?;
@@ -133,8 +169,11 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
                 let _ = std::fs::remove_file(cache::preview_file(id));
             }
         }
+    }
 
-        // 贯彻“单目录”语义：把不属于当前 root 的旧索引及其缓存清掉
+    // 贯彻“单目录”语义：把不属于当前 root 的旧索引及其缓存清掉。
+    // 判定只看路径前缀、不依赖本次遍历结果，故与遍历错误无关，未取消即可执行。
+    if !cancelled {
         match db::purge_outside_root(&mut conn, &root) {
             Ok(purged) => {
                 for id in &purged {
@@ -166,6 +205,8 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
             "total_files": files.len(),
             "cancelled": cancelled,
             "failed": failed,
+            // 遍历出错的项目数：不可读子树的清理被跳过，前端要让用户知道
+            "walk_errors": walk_errors,
         }),
     );
     Ok(items.len())

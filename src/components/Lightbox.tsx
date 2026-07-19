@@ -126,7 +126,9 @@ function PhotoStage({ photo, neighbors }: { photo: MediaItem; neighbors: (MediaI
       alive = false;
       if (loaderRef.current) loaderRef.current.src = "";
     };
-  }, [photo.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    // mtime 必须在依赖里：重扫后同 id 文件内容可能已变，不重跑此 effect 的话
+    // src 会停留在旧 ?v= 的 URL 上，被协议层的一年强缓存钉死显示旧图
+  }, [photo.id, photo.mtime]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="zoom-stage" onClick={(e) => e.stopPropagation()} {...bind}>
