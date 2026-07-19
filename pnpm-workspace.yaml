@@ -4,3 +4,8 @@
 overrides:
   vite: npm:@voidzero-dev/vite-plus-core@latest
   vitest: 4.1.10
+
+# pnpm 10+ 默认拦截依赖的构建脚本；CI 环境下拦截会升级为硬错误
+# （ERR_PNPM_IGNORED_BUILDS）。esbuild 的安装脚本只是落平台二进制，显式放行。
+onlyBuiltDependencies:
+  - esbuild
