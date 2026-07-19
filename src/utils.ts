@@ -13,6 +13,8 @@ export function formatSize(bytes: number): string {
   return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
 }
 
+// 刻意用 getUTC*：后端把 EXIF 的无时区"本地墙钟"时间按 UTC 编码进 unix 秒
+// （media.rs 的 and_utc()），UTC 取回正好还原拍摄地墙钟——别改成本地时区读取。
 export function formatDate(unixSec: number | null): string {
   if (!unixSec) return i18n.t("common.unknownTime");
   const d = new Date(unixSec * 1000);

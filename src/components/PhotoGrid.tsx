@@ -43,11 +43,14 @@ export default function PhotoGrid({ photos, onSelect }: Props) {
         >
           <img
             className="cell__img"
-            src={thumbUrl(p.id)}
+            src={thumbUrl(p.id, p.mtime)}
             alt={p.filename}
             loading="lazy"
             draggable={false}
+            // 虚拟滚动会复用 DOM：broken 类必须在下一次加载成功时对称清除，
+            // 否则复用该节点的正常图片会被永久隐藏
             onError={(e) => e.currentTarget.classList.add("cell__img--broken")}
+            onLoad={(e) => e.currentTarget.classList.remove("cell__img--broken")}
           />
           {p.kind === "video" && (
             <>

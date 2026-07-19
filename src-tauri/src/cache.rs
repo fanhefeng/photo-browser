@@ -69,12 +69,41 @@ pub fn previews_dir() -> PathBuf {
     cache_dir().join("previews")
 }
 
+/// 查看器全分辨率转码缓存目录（HEIC 等 WebView 无法解码时的 sips 兜底产物）。
+/// 与 previews/ 隔离：previews 的语义是"最长边 3840"，且会被扫描/版本迁移随时清掉。
+pub fn viewer_dir() -> PathBuf {
+    cache_dir().join("viewer")
+}
+
 pub fn thumb_file(id: &str) -> PathBuf {
     thumbs_dir().join(format!("{id}.jpg"))
 }
 
 pub fn preview_file(id: &str) -> PathBuf {
     previews_dir().join(format!("{id}.jpg"))
+}
+
+pub fn viewer_file(id: &str) -> PathBuf {
+    viewer_dir().join(format!("{id}.jpg"))
+}
+
+/// 清理过期的查看器缓存（全分辨率 JPEG 体积大，按修改时间淘汰防止无限膨胀；
+/// 命中缓存不刷新 mtime，常用文件到期后会被清掉再按需重转，代价可接受）。
+pub fn prune_viewer_cache(max_age_days: u64) {
+    let cutoff = std::time::SystemTime::now()
+        - std::time::Duration::from_secs(max_age_days * 24 * 3600);
+    if let Ok(entries) = fs::read_dir(viewer_dir()) {
+        for entry in entries.flatten() {
+            let stale = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .map(|t| t < cutoff)
+                .unwrap_or(false);
+            if stale {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
 }
 
 /// 启动时创建全部目录。之后访问器只拼路径，不再产生 I/O 副作用。
@@ -84,6 +113,7 @@ pub fn ensure_dirs() {
         cache_dir(),
         thumbs_dir(),
         previews_dir(),
+        viewer_dir(),
         logs_dir(),
     ] {
         let _ = fs::create_dir_all(&dir);

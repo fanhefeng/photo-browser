@@ -5,7 +5,7 @@ import zh from "./locales/zh.json";
 import en from "./locales/en.json";
 
 // 语言优先级：localStorage（手动切换记忆）> navigator（跟随系统），结果写回 localStorage
-i18n
+void i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({

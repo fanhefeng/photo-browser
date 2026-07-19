@@ -21,7 +21,7 @@ import Toolbar from "./components/Toolbar";
 import Sidebar from "./components/Sidebar";
 import PhotoGrid from "./components/PhotoGrid";
 import Lightbox from "./components/Lightbox";
-import { FolderIcon, GalleryGlyph } from "./components/icons";
+import { CloseIcon, FolderIcon, GalleryGlyph } from "./components/icons";
 
 export default function App() {
   const { t } = useTranslation();
@@ -60,10 +60,10 @@ export default function App() {
     setLocale(i18n.language.startsWith("zh") ? "zh" : "en").catch(() => {});
     // 监听原生菜单的语言切换，同步前端 i18n
     const un = listen<string>("locale-changed", (e) => {
-      i18n.changeLanguage(e.payload);
+      void i18n.changeLanguage(e.payload);
     });
     return () => {
-      un.then((f) => f());
+      void un.then((f) => f());
     };
   }, []);
 
@@ -91,9 +91,12 @@ export default function App() {
           : null
       );
     });
+    // 查看器窗口里删除了文件：刷新网格（未打开目录时 reloadKey 变化无副作用）
+    const unlistenTrashed = listen("media-trashed", () => setReloadKey((k) => k + 1));
     return () => {
-      unlistenProgress.then((f) => f());
-      unlistenDone.then((f) => f());
+      void unlistenProgress.then((f) => f());
+      void unlistenDone.then((f) => f());
+      void unlistenTrashed.then((f) => f());
     };
   }, []);
 
@@ -101,6 +104,9 @@ export default function App() {
   const debounceRef = useRef<number | undefined>(undefined);
   // 请求序号：只采纳最新一次请求的响应，丢弃在途的过期响应（防乱序覆盖）
   const reqIdRef = useRef(0);
+  // photos 的实时镜像：列表刷新时按 id 重定位大图，避免闭包读到旧列表
+  const photosRef = useRef(photos);
+  photosRef.current = photos;
   const refresh = useCallback(() => {
     window.clearTimeout(debounceRef.current);
     debounceRef.current = window.setTimeout(async () => {
@@ -112,6 +118,14 @@ export default function App() {
           getFacets(rootPath ?? undefined),
         ]);
         if (myId !== reqIdRef.current) return;
+        // 大图开着时列表被替换（查看器删除/重扫）：按 id 重定位，
+        // 原图已不在则关闭大图——不能让下标静默指向另一张
+        setLightboxIndex((prev) => {
+          if (prev === null) return prev;
+          const curId = photosRef.current[prev]?.id;
+          const ni = list.findIndex((p) => p.id === curId);
+          return ni >= 0 ? ni : null;
+        });
         setPhotos(list);
         setFacets(fc);
         setError(null);
@@ -129,6 +143,8 @@ export default function App() {
 
   // —— 选目录并扫描 ——
   const handleOpen = async () => {
+    // 后端拒绝并发扫描；扫描中先切了 rootPath 会造成"新目录 + 空网格 + 报错"的撕裂态
+    if (scanning) return;
     const dir = await pickDirectory();
     if (!dir) return;
     setRootPath(dir);
@@ -188,7 +204,9 @@ export default function App() {
           onRescan={() => rootPath && startScan(rootPath)}
           onCancel={() => cancelScan().catch(() => {})}
           scanning={scanning}
-          progress={progress}
+          // 首次导入时主区域已有唯一的进度显示（Importing），工具栏不再重复；
+          // 增量重扫（网格有内容、主区域不显示导入页）仍走工具栏进度
+          progress={photos.length === 0 ? null : progress}
         />
       ) : (
         // 空状态：不显示工具栏，只留一条透明拖动条容纳红绿灯
@@ -221,7 +239,11 @@ export default function App() {
             onMouseDown={(e) => startResize(e.clientX)}
           />
           <main className="content">
-            <PhotoGrid photos={photos} onSelect={setLightboxIndex} />
+            {scanning && photos.length === 0 ? (
+              <Importing progress={progress} onCancel={() => cancelScan().catch(() => {})} />
+            ) : (
+              <PhotoGrid photos={photos} onSelect={setLightboxIndex} />
+            )}
           </main>
         </div>
       ) : (
@@ -254,7 +276,40 @@ function Banner({
     <div className={`banner banner--${tone}`} role="alert">
       <span className="banner__text">{text}</span>
       <button className="banner__close" onClick={onDismiss} aria-label={t("banner.close")}>
-        ✕
+        <CloseIcon size={13} />
+      </button>
+    </div>
+  );
+}
+
+/** 首次导入时的友好占位：网格还没有内容，用进度替代"没有照片"的空状态。
+ *  导入进度只在这里显示（工具栏不重复），取消也收在这里。 */
+function Importing({
+  progress,
+  onCancel,
+}: {
+  progress: { done: number; total: number } | null;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation();
+  const counting = progress !== null && progress.total > 0;
+  const pct = counting ? Math.round((progress.done / progress.total) * 100) : 0;
+  return (
+    <div className="importing" role="status">
+      <div className="importing__spinner" aria-hidden />
+      <div className="importing__title">{t("grid.importing")}</div>
+      <div className="importing__sub">
+        {counting
+          ? t("grid.importingCount", { done: progress.done, total: progress.total })
+          : t("grid.importingScan")}
+      </div>
+      {counting && (
+        <div className="importing__bar">
+          <div className="importing__fill" style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      <button className="btn btn--sm importing__cancel" onClick={onCancel}>
+        {t("toolbar.cancel")}
       </button>
     </div>
   );

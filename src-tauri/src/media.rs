@@ -102,6 +102,31 @@ fn needs_sips(ext: &str) -> bool {
     matches!(ext, "heic" | "heif" | "avif")
 }
 
+/// 缓存产物的同目录唯一临时路径。保留 .jpg 后缀（ffmpeg/sips 按后缀识别格式），
+/// pid + 进程内序号保证并发生成同一目标时互不踩踏。
+fn tmp_path(dst: &Path) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let n = SEQ.fetch_add(1, Ordering::Relaxed);
+    let stem = dst.file_stem().and_then(|s| s.to_str()).unwrap_or("t");
+    dst.with_file_name(format!("{stem}.{}-{n}.tmp.jpg", std::process::id()))
+}
+
+/// 临时文件原子落位到 dst。空产物视为失败（如 ffmpeg 抽帧越界时留下的 0 字节文件）。
+/// 配合 tmp 写入，外部命令被超时 kill 也不会在缓存目录留下截断的最终文件——
+/// 增量扫描按 mtime 跳过，截断文件一旦落位就永远不会被重建。
+fn commit_tmp(tmp: &Path, dst: &Path) -> Result<(), String> {
+    let nonempty = std::fs::metadata(tmp).map(|m| m.len() > 0).unwrap_or(false);
+    if !nonempty {
+        let _ = std::fs::remove_file(tmp);
+        return Err("生成的图片为空".into());
+    }
+    std::fs::rename(tmp, dst).map_err(|e| {
+        let _ = std::fs::remove_file(tmp);
+        format!("缓存文件落位失败: {e}")
+    })
+}
+
 /// 一条完整的媒体记录（照片或视频），序列化后直接发给前端。
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct MediaItem {
@@ -142,8 +167,9 @@ pub fn media_id(path: &Path) -> String {
         .to_string()
 }
 
-/// 处理单个文件：解析元数据并生成缩略图。失败返回 None（跳过该文件）。
-pub fn build_media(path: &Path) -> Option<MediaItem> {
+/// 只解析元数据（EXIF/ffprobe/尺寸/方向），不生成缩略图、不失效预览缓存。
+/// 供查看器等"只读单文件"场景使用；扫描请用 [`build_media`]。
+pub fn build_media_meta(path: &Path) -> Option<MediaItem> {
     let meta = std::fs::metadata(path).ok()?;
     if !meta.is_file() {
         return None;
@@ -184,13 +210,8 @@ pub fn build_media(path: &Path) -> Option<MediaItem> {
         ..Default::default()
     };
 
-    let thumb_dst = crate::cache::thumb_file(&id);
     if is_video {
         parse_video_meta(path, &mut photo);
-        // 抽一帧做封面（复用 thumb:// 机制）
-        if let Err(e) = video_poster(path, &thumb_dst, 320) {
-            tracing::warn!(path = %path.display(), error = %e, "视频封面生成失败");
-        }
     } else {
         parse_exif(path, &mut photo);
 
@@ -205,15 +226,30 @@ pub fn build_media(path: &Path) -> Option<MediaItem> {
         if matches!(photo.orientation, Some(5) | Some(6) | Some(7) | Some(8)) {
             std::mem::swap(&mut photo.width, &mut photo.height);
         }
+    }
+
+    Some(photo)
+}
+
+/// 处理单个文件：解析元数据并生成缩略图。失败返回 None（跳过该文件）。
+pub fn build_media(path: &Path) -> Option<MediaItem> {
+    let photo = build_media_meta(path)?;
+    let thumb_dst = crate::cache::thumb_file(&photo.id);
+    if photo.kind == "video" {
+        // 抽一帧做封面（复用 thumb:// 机制）
+        if let Err(e) = video_poster(path, &thumb_dst, 320) {
+            tracing::warn!(path = %path.display(), error = %e, "视频封面生成失败");
+        }
+    } else {
         // (重新)生成缩略图。build_media 只对新增/变更的文件调用，因此总是重建，
         // 避免文件被原地替换后仍显示旧缩略图。
-        if let Err(e) = make_resized(path, &thumb_dst, 320, &ext, photo.orientation) {
+        if let Err(e) = make_resized(path, &thumb_dst, 320, &photo.ext, photo.orientation) {
             tracing::warn!(path = %path.display(), error = %e, "缩略图生成失败");
         }
     }
 
     // 失效旧预览图，下次打开大图时按新内容懒生成
-    let _ = std::fs::remove_file(crate::cache::preview_file(&id));
+    let _ = std::fs::remove_file(crate::cache::preview_file(&photo.id));
 
     Some(photo)
 }
@@ -251,7 +287,8 @@ fn parse_video_meta(path: &Path, photo: &mut MediaItem) {
         {
             photo.width = vs.get("width").and_then(|v| v.as_i64()).or(photo.width);
             photo.height = vs.get("height").and_then(|v| v.as_i64()).or(photo.height);
-            // 旋转可能在 tags.rotate 或 side_data_list 的 displaymatrix
+            // 旋转的两个来源：老 ffmpeg 在 tags.rotate；ffmpeg 5+（2022 起）只在
+            // side_data_list 的 Display Matrix 里（rotation 为负角度、可能带小数）
             if let Some(r) = vs
                 .get("tags")
                 .and_then(|t| t.get("rotate"))
@@ -259,6 +296,19 @@ fn parse_video_meta(path: &Path, photo: &mut MediaItem) {
                 .and_then(|r| r.parse::<i64>().ok())
             {
                 rotation = r;
+            } else if let Some(r) = vs
+                .get("side_data_list")
+                .and_then(|s| s.as_array())
+                .and_then(|list| {
+                    list.iter().find_map(|d| {
+                        (d.get("side_data_type").and_then(|t| t.as_str())
+                            == Some("Display Matrix"))
+                        .then(|| d.get("rotation").and_then(|r| r.as_f64()))
+                        .flatten()
+                    })
+                })
+            {
+                rotation = r.round() as i64;
             }
         }
     }
@@ -324,19 +374,22 @@ fn poster_cmd(src: &Path, dst: &Path, max: u32, seek: Option<&str>) -> Command {
     cmd
 }
 
-/// 用 ffmpeg 抽取一帧作为视频封面（缩放到最长边 max，存为 JPEG）。
+/// 用 ffmpeg 抽取一帧作为视频封面（缩放到最长边 max，存为 JPEG，经 tmp 原子落位）。
 fn video_poster(src: &Path, dst: &Path, max: u32) -> Result<(), String> {
-    // 先取第 1 秒（避开纯黑首帧）；视频不足 1 秒会失败，再回退到首帧。
-    let out = run_timeout(poster_cmd(src, dst, max, Some("1")), 30)?;
-    if out.status.success() && dst.exists() {
-        return Ok(());
-    }
-    let out2 = run_timeout(poster_cmd(src, dst, max, None), 30)?;
-    if out2.status.success() && dst.exists() {
-        Ok(())
-    } else {
-        Err("ffmpeg 抽帧失败".into())
-    }
+    // 先取第 1 秒（避开纯黑首帧）；失败/超时/空产物都回退到首帧再试一次
+    let try_seek = |seek: Option<&str>| -> Result<(), String> {
+        let tmp = tmp_path(dst);
+        let out = run_timeout(poster_cmd(src, &tmp, max, seek), 30).inspect_err(|_| {
+            let _ = std::fs::remove_file(&tmp);
+        })?;
+        if out.status.success() {
+            commit_tmp(&tmp, dst)
+        } else {
+            let _ = std::fs::remove_file(&tmp);
+            Err("ffmpeg 抽帧失败".into())
+        }
+    };
+    try_seek(Some("1")).or_else(|_| try_seek(None))
 }
 
 /// 解析 ISO8601 时间字符串为 Unix 秒
@@ -368,7 +421,7 @@ fn parse_iso6709(s: &str) -> Option<(f64, f64)> {
     let rest = &s[split..];
     // 经度到下一个符号或 '/' 结束
     let lon_end = rest[1..]
-        .find(|c| c == '+' || c == '-' || c == '/')
+        .find(['+', '-', '/'])
         .map(|i| i + 1)
         .unwrap_or(rest.len());
     let lon: f64 = rest[..lon_end].parse().ok()?;
@@ -385,7 +438,7 @@ pub fn ensure_preview(path: &Path, id: &str, ext: &str, orientation: Option<i64>
     make_resized(path, &dst, 3840, ext, orientation).is_ok()
 }
 
-/// 把源图缩放到最长边 `max` 像素并保存为 JPEG。
+/// 把源图缩放到最长边 `max` 像素并保存为 JPEG（经 tmp 原子落位）。
 /// 标准格式走 image crate；HEIC/HEIF/AVIF 走 macOS 自带的 sips。
 fn make_resized(
     src: &Path,
@@ -401,9 +454,14 @@ fn make_resized(
         Ok(img) => {
             let resized = img.thumbnail(max, max);
             let rotated = apply_orientation(resized, orientation.unwrap_or(1));
+            let tmp = tmp_path(dst);
             flatten_to_rgb(&rotated)
-                .save(dst)
-                .map_err(|e| format!("保存缩略图失败: {e}"))
+                .save(&tmp)
+                .map_err(|e| {
+                    let _ = std::fs::remove_file(&tmp);
+                    format!("保存缩略图失败: {e}")
+                })
+                .and_then(|_| commit_tmp(&tmp, dst))
         }
         // image 解码失败时也尝试 sips（覆盖个别异常编码）
         Err(_) => sips_resize(src, dst, max),
@@ -430,31 +488,58 @@ fn flatten_to_rgb(img: &image::DynamicImage) -> image::RgbImage {
     }
 }
 
-/// 调用 macOS 的 sips 生成缩略图（自动处理 HEIC、自动按 EXIF 旋转）
-fn sips_resize(src: &Path, dst: &Path, max: u32) -> Result<(), String> {
+/// 全分辨率 sips 转 JPEG（不缩放，自动按 EXIF 旋转），经 tmp 原子落位。
+/// 查看器对 WebView 无法原生解码的格式（HEIC 等）的兜底转码。
+pub fn sips_full_jpeg(src: &Path, dst: &Path) -> Result<(), String> {
+    let tmp = tmp_path(dst);
     let mut cmd = Command::new("sips");
-    cmd.args(["-s", "format", "jpeg", "-Z", &max.to_string()])
+    cmd.args(["-s", "format", "jpeg", "-s", "formatOptions", "92"])
         .arg(src)
         .arg("--out")
-        .arg(dst);
-    let out = run_timeout(cmd, 30)?;
+        .arg(&tmp);
+    // 全分辨率转码比缩略图慢，给更宽的超时
+    let out = run_timeout(cmd, 60).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })?;
     if out.status.success() {
-        Ok(())
+        commit_tmp(&tmp, dst)
     } else {
+        let _ = std::fs::remove_file(&tmp);
         Err(String::from_utf8_lossy(&out.stderr).to_string())
     }
 }
 
-/// 根据 EXIF orientation 旋转/翻转图像（image crate 不会自动处理）
+/// 调用 macOS 的 sips 生成缩略图（自动处理 HEIC、自动按 EXIF 旋转），经 tmp 原子落位
+fn sips_resize(src: &Path, dst: &Path, max: u32) -> Result<(), String> {
+    let tmp = tmp_path(dst);
+    let mut cmd = Command::new("sips");
+    cmd.args(["-s", "format", "jpeg", "-Z", &max.to_string()])
+        .arg(src)
+        .arg("--out")
+        .arg(&tmp);
+    let out = run_timeout(cmd, 30).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })?;
+    if out.status.success() {
+        commit_tmp(&tmp, dst)
+    } else {
+        let _ = std::fs::remove_file(&tmp);
+        Err(String::from_utf8_lossy(&out.stderr).to_string())
+    }
+}
+
+/// 根据 EXIF orientation 旋转/翻转图像（image crate 不会自动处理）。
+/// 5 的校正是 transpose（(x,y)→(y,x)）、7 是 transverse（对角反转），
+/// 见单测 `orientation_5_is_transpose_7_is_transverse` 的坐标断言。
 fn apply_orientation(img: image::DynamicImage, orientation: i64) -> image::DynamicImage {
     use image::imageops::{flip_horizontal, flip_vertical, rotate180, rotate270, rotate90};
     match orientation {
         2 => flip_horizontal(&img).into(),
         3 => rotate180(&img).into(),
         4 => flip_vertical(&img).into(),
-        5 => rotate90(&flip_horizontal(&img)).into(),
+        5 => rotate270(&flip_horizontal(&img)).into(),
         6 => rotate90(&img).into(),
-        7 => rotate270(&flip_horizontal(&img)).into(),
+        7 => rotate90(&flip_horizontal(&img)).into(),
         8 => rotate270(&img).into(),
         _ => img,
     }
@@ -547,7 +632,10 @@ fn get_shutter(exif: &exif::Exif) -> Option<String> {
     None
 }
 
-/// 优先 DateTimeOriginal，其次 DateTime；格式 "YYYY:MM:DD HH:MM:SS"
+/// 优先 DateTimeOriginal，其次 DateTime；格式 "YYYY:MM:DD HH:MM:SS"。
+/// EXIF 时间无时区（拍摄地墙钟），这里刻意按 UTC 编码进 unix 秒，
+/// 前端再按 UTC 读回即还原墙钟（见 utils.ts formatDate）。代价是与视频的
+/// creation_time（真 UTC）混排时相差一个时区偏移——已知取舍。
 fn get_datetime(exif: &exif::Exif) -> Option<i64> {
     for tag in [Tag::DateTimeOriginal, Tag::DateTime] {
         if let Some(field) = exif.get_field(tag, In::PRIMARY) {
@@ -609,6 +697,28 @@ mod tests {
         // RFC3339 带时区
         assert!(parse_iso8601("2023-08-15T10:30:00+08:00").is_some());
         assert!(parse_iso8601("not-a-date").is_none());
+    }
+
+    #[test]
+    fn orientation_5_is_transpose_7_is_transverse() {
+        use image::{DynamicImage, Rgba, RgbaImage};
+        // 2x1：左红右蓝
+        let mut img = RgbaImage::new(2, 1);
+        img.put_pixel(0, 0, Rgba([255, 0, 0, 255]));
+        img.put_pixel(1, 0, Rgba([0, 0, 255, 255]));
+        let src = DynamicImage::ImageRgba8(img);
+
+        // 5 = transpose：(x,y)→(y,x)。红(0,0)→(0,0)、蓝(1,0)→(0,1)
+        let t5 = apply_orientation(src.clone(), 5).to_rgba8();
+        assert_eq!(t5.dimensions(), (1, 2));
+        assert_eq!(t5.get_pixel(0, 0)[0], 255, "5 校正后红应在上");
+        assert_eq!(t5.get_pixel(0, 1)[2], 255, "5 校正后蓝应在下");
+
+        // 7 = transverse：(x,y)→(H-1-y, W-1-x)。红(0,0)→(0,1)、蓝(1,0)→(0,0)
+        let t7 = apply_orientation(src, 7).to_rgba8();
+        assert_eq!(t7.dimensions(), (1, 2));
+        assert_eq!(t7.get_pixel(0, 0)[2], 255, "7 校正后蓝应在上");
+        assert_eq!(t7.get_pixel(0, 1)[0], 255, "7 校正后红应在下");
     }
 
     #[test]

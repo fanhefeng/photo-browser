@@ -20,7 +20,8 @@
     "file_size": "File size",
     "width": "Resolution",
     "iso": "ISO",
-    "focal_length": "Focal length"
+    "focal_length": "Focal length",
+    "mtime": "Date modified"
   },
   "sidebar": {
     "notLoaded": "No photos loaded yet",
@@ -52,7 +53,10 @@
   "grid": {
     "empty": "No matching photos",
     "emptyHint": "Try a different category on the left, or click “Show all”",
-    "view": "View {{name}}"
+    "view": "View {{name}}",
+    "importing": "Importing photos…",
+    "importingScan": "Scanning files…",
+    "importingCount": "{{done}} / {{total}} processed"
   },
   "lightbox": {
     "prev": "Previous",
@@ -61,7 +65,7 @@
     "videoErrorSub": "The codec may be unsupported by the WebView (e.g. some MOV/HEVC)",
     "zoomOut": "Zoom out",
     "zoomIn": "Zoom in",
-    "fit": "Fit to screen"
+    "fit": "Fit to window"
   },
   "detail": {
     "field": {
@@ -82,6 +86,18 @@
     "video": "Video",
     "reveal": "Reveal in Finder",
     "close": "Close (Esc)"
+  },
+  "viewer": {
+    "info": "Info (I)",
+    "hideInfo": "Hide info (I)",
+    "trash": "Move to Trash (⌫)",
+    "fullscreen": "Full Screen",
+    "exitFullscreen": "Exit Full Screen (Esc)",
+    "close": "Close",
+    "actualSize": "Actual size (1 image pixel = 1 device pixel)",
+    "empty": "Nothing to display",
+    "trashFailed": "Failed to move to Trash",
+    "loadFailed": "Cannot display this image"
   },
   "banner": {
     "ffmpegMissing": "ffmpeg / ffprobe not found. Videos cannot generate posters or metadata. Install via Homebrew: brew install ffmpeg",

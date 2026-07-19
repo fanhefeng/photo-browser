@@ -117,9 +117,14 @@ body {
   color: var(--on-accent);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
-.btn--primary:hover {
+/* 与通用 .btn:not(:disabled):hover 同优先级 (0,3,0) 且靠后，
+   否则主按钮 hover 会被通用规则刷成浅灰底（蓝底"变白"消失） */
+.btn--primary:not(:disabled):hover {
   background: var(--accent-hover);
   border-color: transparent;
+}
+.btn--primary:not(:disabled):active {
+  background: var(--accent-hover);
 }
 .btn--lg {
   height: 44px;
@@ -789,6 +794,13 @@ body {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
+  /* 必须盖过后续 DOM 中的定位元素 zoom-stage 及其中的大图，
+     否则左箭头会被图片遮挡、点击被舞台截胡（右箭头因 DOM 在后不受影响） */
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   width: 44px;
   height: 64px;
   border: 1px solid var(--border);
@@ -796,8 +808,6 @@ body {
   background: rgba(255, 255, 255, 0.82);
   box-shadow: var(--shadow-card);
   color: var(--text);
-  font-size: 30px;
-  line-height: 1;
   cursor: pointer;
   transition: background 0.12s;
 }
@@ -863,6 +873,316 @@ body {
 }
 .detail__reveal {
   width: 100%;
+}
+
+/* —————————————— 查看器窗口（"打开方式"进入，Liquid Glass 深色） ——————————————
+   对齐 macOS 26 Quick Look：图片铺满窗口，深色玻璃条覆盖其上（backdrop-filter
+   模糊的是图片内容本身）；全屏时顶栏隐藏、底部浮出玻璃胶囊。 */
+/* 查看器窗口整体换肤：在 html.viewer-window 下重定义变量，
+   共享组件（detail 面板 / zoom-bar / .btn / 滚动条…）自动适配深色，
+   浅色侧新增组件无需在深色侧逐条补覆盖。玻璃材质等查看器特有样式仍用专属选择器。 */
+html.viewer-window {
+  color-scheme: dark;
+  --surface: #161618;
+  --bg: #161618;
+  --bg-hover: rgba(255, 255, 255, 0.1);
+  --border: rgba(255, 255, 255, 0.14);
+  --border-hover: rgba(255, 255, 255, 0.24);
+  --hairline: rgba(255, 255, 255, 0.12);
+  --text: #f5f5f7;
+  --text-dim: rgba(255, 255, 255, 0.6);
+  --text-faint: rgba(255, 255, 255, 0.45);
+  --accent-rgb: 64, 156, 255; /* 深底上提亮一档的系统蓝 */
+  --scrollbar: rgba(255, 255, 255, 0.25);
+  --scrollbar-hover: rgba(255, 255, 255, 0.38);
+  --placeholder: #2a2a2c;
+}
+.viewer {
+  position: relative;
+  height: 100vh;
+  background: var(--surface);
+  color: var(--text);
+  overflow: hidden;
+}
+/* 玻璃材质公共配方 */
+.viewer__topbar,
+.viewer__fsbar,
+.viewer .lightbox__nav,
+.viewer .zoom-bar {
+  background: rgba(28, 28, 30, 0.55);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+}
+
+/* 顶部玻璃条：覆盖在图上；无红绿灯（已隐藏），左侧自绘窗口按钮，空白处可拖动窗口 */
+.viewer__topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 10px 0 12px;
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.12);
+}
+.viewer__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+/* Quick Look 式单色玻璃窗口按钮（关闭/全屏）：仿原生，窗口行为走原生 API */
+.viewer__winbtns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.winbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.winbtn:hover {
+  background: rgba(255, 255, 255, 0.26);
+  color: #fff;
+}
+.winbtn:active {
+  background: rgba(255, 255, 255, 0.34);
+}
+.viewer__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f5f5f7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.viewer__count {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.viewer__actions {
+  display: flex;
+  gap: 2px;
+  flex: none;
+}
+
+/* 玻璃图标按钮（顶栏 + 全屏胶囊共用） */
+.gbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.gbtn:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+.gbtn:active {
+  background: rgba(255, 255, 255, 0.22);
+}
+.gbtn--active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* 全屏底部玻璃胶囊（Quick Look 全屏工具条样式），自动隐藏 */
+.viewer__fsbar {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-radius: 18px;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.14);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+/* 空闲淡出：不可点（pointer-events:none 让点击穿透到舞台） */
+.viewer__fsbar--hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(10px);
+  pointer-events: none;
+}
+/* 空闲时连鼠标光标一起隐藏（视频播放器/Quick Look 惯例）。
+   zoom-stage 带 useZoom 的内联 cursor 样式，须 !important 才能压过 */
+.viewer--fs.viewer--idle .viewer__stage,
+.viewer--fs.viewer--idle .zoom-stage {
+  cursor: none !important;
+}
+.viewer__fsbar .gbtn {
+  width: 40px;
+  height: 40px;
+}
+.viewer__fssep {
+  width: 1px;
+  height: 24px;
+  margin: 0 6px;
+  background: rgba(255, 255, 255, 0.18);
+}
+.viewer__fspct {
+  min-width: 46px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.viewer__fsglyph {
+  font-size: 18px;
+  line-height: 1;
+}
+.viewer__fsglyph--sm {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.viewer__error {
+  position: absolute;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: 6px 14px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  color: #ff9f9a;
+  background: rgba(60, 20, 18, 0.7);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+.viewer__body {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+/* 舞台让出顶部玻璃条高度，适应状态下图片完整可见不被遮挡；全屏无顶栏则占满 */
+.viewer__stage {
+  padding: 44px 0 0;
+}
+.viewer--fs .viewer__stage {
+  padding: 0;
+}
+/* 全屏只保留底部玻璃工具条一层（对齐 Quick Look）；缩放并入该工具条 */
+.viewer--fs .zoom-bar {
+  display: none;
+}
+
+/* 左右箭头：深色玻璃圆钮 */
+.viewer .lightbox__nav {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 0.5px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  color: rgba(255, 255, 255, 0.9);
+  opacity: 0;
+  transition: opacity 0.15s, background 0.12s;
+}
+.viewer:hover .lightbox__nav {
+  opacity: 1;
+}
+.viewer .lightbox__nav:hover {
+  background: rgba(70, 70, 74, 0.7);
+}
+
+/* 缩放胶囊：深色玻璃（文字/图标颜色由变量换肤自动适配） */
+.viewer .zoom-bar {
+  border: 0.5px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+.viewer .zoom-bar__btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+.zoom-bar__btn--text {
+  width: auto;
+  padding: 0 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 信息面板：玻璃底 + 顶部让开玻璃条；文字/按钮/链接颜色由变量换肤自动适配 */
+.viewer .detail {
+  background: rgba(24, 24, 26, 0.72);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  border-left: 0.5px solid var(--hairline);
+  padding-top: 56px;
+}
+
+/* —————————————— 导入进行中（主窗口网格占位） —————————————— */
+.importing {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  padding: 24px;
+}
+.importing__spinner {
+  width: 28px;
+  height: 28px;
+  margin-bottom: 6px;
+  border-radius: 50%;
+  border: 3px solid rgba(0, 0, 0, 0.08);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+.importing__title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.importing__sub {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.importing__bar {
+  width: 240px;
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 99px;
+  background: rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+.importing__fill {
+  height: 100%;
+  border-radius: 99px;
+  background: var(--accent);
+  transition: width 0.25s ease-out;
+}
+.importing__cancel {
+  margin-top: 14px;
 }
 
 /* 滚动条 */

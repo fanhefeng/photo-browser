@@ -1,26 +1,26 @@
-//! Tauri 应用入口：状态管理、命令、自定义媒体协议（缩略图/封面/预览）、目录扫描。
+//! Tauri 应用入口：状态、窗口、命令注册、自定义媒体协议、"打开方式"事件。
+//! 扫描编排在 scan.rs、原生菜单在 menu.rs、查看器命令在 viewer.rs。
 
 mod cache;
 mod db;
 mod logging;
 mod media;
+mod menu;
+mod scan;
+mod viewer;
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use rayon::prelude::*;
-use serde_json::json;
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, Submenu};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, Manager, State, TitleBarStyle, WebviewUrl,
     WebviewWindowBuilder,
 };
-use walkdir::WalkDir;
 
 use db::{Facets, Filter};
 use media::MediaItem;
+use scan::has_media_ext;
 
 /// 全局状态。
 /// - `db`：用于查询的共享连接（扫描走独立连接，靠 SQLite WAL 并发读写）。
@@ -40,36 +40,114 @@ fn lock_db(db: &Mutex<rusqlite::Connection>) -> std::sync::MutexGuard<'_, rusqli
     db.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn has_media_ext(p: &Path) -> bool {
-    p.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| media::is_media_ext(&e.to_lowercase()))
-        .unwrap_or(false)
-}
-
-/// 扫描一个目录：增量解析元数据、生成缩略图/封面、写入索引，过程中发送进度事件。
-/// 拒绝并发扫描；可通过 `cancel_scan` 中断。
-#[tauri::command]
-async fn scan_directory(app: AppHandle, path: String) -> Result<usize, String> {
-    {
-        let state = app.state::<AppState>();
-        if state.scanning.swap(true, Ordering::SeqCst) {
-            // 返回 i18n key，前端按当前语言翻译
-            return Err("backend.scanInProgress".into());
+/// 打开索引库；失败（多为库文件损坏）时把旧库挪到 .corrupt 后重建。
+/// 索引本质是可再生缓存（重扫即可完全恢复），绝不能让损坏的库堵死启动。
+fn open_db_with_recovery() -> Result<rusqlite::Connection, String> {
+    match db::open() {
+        Ok(conn) => Ok(conn),
+        Err(e) => {
+            tracing::warn!(error = %e, "索引库打开失败，备份为 .corrupt 后重建");
+            let p = cache::db_path();
+            let _ = std::fs::rename(&p, p.with_extension("db.corrupt"));
+            // WAL 伴生文件一并清掉，避免新库读到旧日志
+            for ext in ["db-wal", "db-shm"] {
+                let _ = std::fs::remove_file(p.with_extension(ext));
+            }
+            db::open().map_err(|e| format!("无法初始化数据库: {e}"))
         }
-        state.cancel.store(false, Ordering::SeqCst);
     }
-    let app2 = app.clone();
-    let joined = tauri::async_runtime::spawn_blocking(move || scan_impl(app2, path)).await;
-    // 无论成功失败都复位标志
-    app.state::<AppState>().scanning.store(false, Ordering::SeqCst);
-    joined.map_err(|e| e.to_string())?
 }
 
-/// 请求取消正在进行的扫描。
+/// 通过"打开方式"进入的待处理文件路径缓冲。
+/// 必须用 `Builder::manage` 在 build 阶段注册：macOS 冷启动双击文件时，
+/// `RunEvent::Opened` 先于 setup 到达，彼时 `AppState` 尚未注册、缓冲必须已可用。
+#[derive(Default)]
+struct OpenState {
+    pending: Mutex<Vec<String>>,
+    /// setup 是否已完成（决定 Opened 事件只缓冲，还是需要建窗/聚焦）
+    ready: AtomicBool,
+}
+
+fn lock_pending(state: &OpenState) -> std::sync::MutexGuard<'_, Vec<String>> {
+    state.pending.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// 取走并清空待打开文件缓冲。查看器前端在挂载时与收到
+/// `viewer-open-pending` 事件时调用（"拉"模型，事件丢失也不丢路径）。
 #[tauri::command]
-fn cancel_scan(state: State<AppState>) {
-    state.cancel.store(true, Ordering::SeqCst);
+fn take_pending_open(state: State<OpenState>) -> Vec<String> {
+    let paths = std::mem::take(&mut *lock_pending(&state));
+    if !paths.is_empty() {
+        tracing::info!(count = paths.len(), "查看器：取走待打开文件");
+    }
+    paths
+}
+
+/// 把文件所在目录动态加入 asset 协议白名单（应对 $HOME / /Volumes 之外的路径）。
+/// macOS 的 /tmp、/var 是 /private 下的符号链接，原始路径与 canonicalize 后都要放行。
+fn allow_asset_dir(app: &AppHandle, file: &Path) {
+    if let Some(dir) = file.parent() {
+        let _ = app.asset_protocol_scope().allow_directory(dir, false);
+        if let Ok(canon) = dir.canonicalize() {
+            if canon != dir {
+                let _ = app.asset_protocol_scope().allow_directory(&canon, false);
+            }
+        }
+    }
+}
+
+/// 主浏览器窗口。红绿灯下移对齐工具栏中心；配色全部由前端 CSS 控制。
+fn create_main_window<M: Manager<tauri::Wry>>(manager: &M) -> tauri::Result<()> {
+    WebviewWindowBuilder::new(manager, "main", WebviewUrl::App("index.html".into()))
+        .title("照片浏览器")
+        .inner_size(1280.0, 840.0)
+        .min_inner_size(880.0, 560.0)
+        .title_bar_style(TitleBarStyle::Overlay)
+        .hidden_title(true)
+        .traffic_light_position(LogicalPosition::new(20.0, 22.0))
+        .build()?;
+    Ok(())
+}
+
+/// 隐藏 macOS 原生红绿灯（close/miniaturize/zoom）。
+/// Quick Look 式查看器用自绘的单色玻璃窗口按钮，但窗口本体仍是原生的
+/// （圆角/阴影/拖拽/原生全屏都保留）——红绿灯样式无公开 API 可定制，只能隐藏后仿原生。
+#[cfg(target_os = "macos")]
+fn hide_native_window_buttons(window: &tauri::WebviewWindow) {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    if let Ok(ns) = window.ns_window() {
+        let ns = ns as *mut AnyObject;
+        unsafe {
+            // NSWindowButton: 0 = close, 1 = miniaturize, 2 = zoom
+            for kind in 0usize..3 {
+                let btn: *mut AnyObject = msg_send![ns, standardWindowButton: kind];
+                if !btn.is_null() {
+                    let () = msg_send![btn, setHidden: true];
+                }
+            }
+        }
+    }
+}
+
+/// 独立查看器窗口（"打开方式"进入）。前端按窗口 label 分流渲染 ViewerApp。
+/// 深色主题 + 深色底：配合前端的 Liquid Glass 深色视觉，避免启动白闪；
+/// 原生红绿灯隐藏，由前端自绘 Quick Look 式关闭/全屏按钮（原生全屏行为不变）。
+fn create_viewer_window<M: Manager<tauri::Wry>>(manager: &M) -> tauri::Result<()> {
+    let window = WebviewWindowBuilder::new(manager, "viewer", WebviewUrl::App("index.html".into()))
+        .title("")
+        .inner_size(1100.0, 760.0)
+        .min_inner_size(600.0, 420.0)
+        .title_bar_style(TitleBarStyle::Overlay)
+        .hidden_title(true)
+        .theme(Some(tauri::Theme::Dark))
+        .background_color(tauri::window::Color(22, 22, 24, 255))
+        .build()?;
+    #[cfg(target_os = "macos")]
+    hide_native_window_buttons(&window);
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
+    Ok(())
 }
 
 /// 视频功能是否可用（依赖 ffprobe/ffmpeg）。前端据此提示用户。
@@ -99,131 +177,6 @@ fn app_info() -> AppInfo {
         log_dir: cache::logs_dir().display().to_string(),
         db_path: cache::db_path().display().to_string(),
     }
-}
-
-fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
-    tracing::info!(root = %root, "扫描开始");
-    // 守卫：root 必须是目录。否则没有路径以 "<root>/" 开头，
-    // purge_outside_root 会把整库都当作“目录外”删光。
-    if !Path::new(&root).is_dir() {
-        return Err("backend.notDirectory".into());
-    }
-    let cancel = app.state::<AppState>().cancel.clone();
-    let mut conn = db::open().map_err(|e| {
-        tracing::error!(error = %e, "打开数据库失败");
-        e.to_string()
-    })?;
-
-    // 1. 收集目录下所有媒体文件
-    let files: Vec<PathBuf> = WalkDir::new(&root)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-        .map(|e| e.into_path())
-        .filter(|p| has_media_ext(p))
-        .collect();
-
-    // 2. 增量：跳过 mtime 未变的文件（仅看当前 root 目录下的已有记录）
-    let existing = db::existing_mtimes(&conn, &root).unwrap_or_default();
-    let to_process: Vec<PathBuf> = files
-        .iter()
-        .filter(|p| {
-            let id = media::media_id(p);
-            let cur_mtime = std::fs::metadata(p)
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-            match existing.get(&id) {
-                Some(&old) => old != cur_mtime,
-                None => true,
-            }
-        })
-        .cloned()
-        .collect();
-
-    let total = to_process.len();
-    tracing::info!(files = files.len(), to_process = total, "扫描：开始处理");
-    let _ = app.emit("scan-progress", json!({ "done": 0, "total": total }));
-
-    // 3. 并行解析 + 生成缩略图/封面（rayon），实时上报进度；检查取消标志
-    let counter = AtomicUsize::new(0);
-    let items: Vec<MediaItem> = to_process
-        .par_iter()
-        .filter_map(|p| {
-            if cancel.load(Ordering::Relaxed) {
-                return None;
-            }
-            let result = media::build_media(p);
-            let n = counter.fetch_add(1, Ordering::Relaxed) + 1;
-            if n % 16 == 0 || n == total {
-                let _ = app.emit("scan-progress", json!({ "done": n, "total": total }));
-            }
-            result
-        })
-        .collect();
-
-    // 4. 写入索引（即使被取消，也保留已处理的部分）
-    if let Err(e) = db::upsert_media(&mut conn, &items) {
-        tracing::error!(error = %e, count = items.len(), "写入索引失败");
-        return Err(e.to_string());
-    }
-
-    // 5. 清理已删除的文件——仅在未取消时执行（取消时扫描不完整，删除不可靠）。
-    //    `existing` 已限定在当前 root 下，不会误伤其他目录的索引。
-    let cancelled = cancel.load(Ordering::Relaxed);
-    if !cancelled {
-        let current_ids: HashSet<String> = files.iter().map(|p| media::media_id(p)).collect();
-        let missing: Vec<String> = existing
-            .keys()
-            .filter(|id| !current_ids.contains(*id))
-            .cloned()
-            .collect();
-        if !missing.is_empty() {
-            db::delete_ids(&mut conn, &missing).map_err(|e| e.to_string())?;
-            // 同步清理孤儿缩略图/预览缓存，避免缓存目录无限膨胀
-            for id in &missing {
-                let _ = std::fs::remove_file(cache::thumb_file(id));
-                let _ = std::fs::remove_file(cache::preview_file(id));
-            }
-        }
-
-        // 贯彻“单目录”语义：把不属于当前 root 的旧索引及其缓存清掉
-        match db::purge_outside_root(&mut conn, &root) {
-            Ok(purged) => {
-                for id in &purged {
-                    let _ = std::fs::remove_file(cache::thumb_file(id));
-                    let _ = std::fs::remove_file(cache::preview_file(id));
-                }
-                if !purged.is_empty() {
-                    tracing::info!(count = purged.len(), "清理其他目录的旧索引");
-                }
-            }
-            Err(e) => tracing::warn!(error = %e, "清理其他目录索引失败"),
-        }
-    }
-
-    // 处理失败的文件数（仅未取消时有意义）
-    let failed = if cancelled {
-        0
-    } else {
-        total.saturating_sub(items.len())
-    };
-    if failed > 0 {
-        tracing::warn!(failed, total, "部分文件处理失败（详见日志）");
-    }
-    tracing::info!(processed = items.len(), cancelled, failed, "扫描完成");
-    let _ = app.emit(
-        "scan-done",
-        json!({
-            "processed": items.len(),
-            "total_files": files.len(),
-            "cancelled": cancelled,
-            "failed": failed,
-        }),
-    );
-    Ok(items.len())
 }
 
 #[tauri::command]
@@ -268,65 +221,6 @@ fn reveal_in_finder(path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// 菜单项的中/英文案（locale = "en" 取英文，否则中文）。
-fn menu_label(key: &str, locale: &str) -> &'static str {
-    let en = locale == "en";
-    match key {
-        "dirs" => if en { "Folders" } else { "目录" },
-        "open_data" => if en { "Open Data Folder" } else { "打开数据目录" },
-        "open_cache" => if en { "Open Cache Folder" } else { "打开缓存目录" },
-        "open_logs" => if en { "Open Logs Folder" } else { "打开日志目录" },
-        "open_devtools" => if en { "Open DevTools" } else { "打开调试控制台" },
-        "language" => if en { "Language" } else { "语言" },
-        _ => "",
-    }
-}
-
-/// 按当前语言构建原生菜单（默认菜单 + “目录”子菜单 + 仅 dev 的调试入口）。
-fn build_menu<R: tauri::Runtime>(
-    app: &AppHandle<R>,
-    locale: &str,
-) -> tauri::Result<Menu<R>> {
-    let menu = Menu::default(app)?;
-    let l = |k: &str| menu_label(k, locale);
-    let open_data = MenuItem::with_id(app, "open_data", l("open_data"), true, None::<&str>)?;
-    let open_cache = MenuItem::with_id(app, "open_cache", l("open_cache"), true, None::<&str>)?;
-    let open_logs = MenuItem::with_id(app, "open_logs", l("open_logs"), true, None::<&str>)?;
-    let dirs = Submenu::with_items(app, l("dirs"), true, &[&open_data, &open_cache, &open_logs])?;
-    menu.append(&dirs)?;
-
-    // 语言子菜单：母语名固定（中文 / English），勾选当前语言
-    let lang_zh = CheckMenuItem::with_id(app, "lang_zh", "中文", true, locale != "en", None::<&str>)?;
-    let lang_en =
-        CheckMenuItem::with_id(app, "lang_en", "English", true, locale == "en", None::<&str>)?;
-    let lang_menu = Submenu::with_items(app, l("language"), true, &[&lang_zh, &lang_en])?;
-    menu.append(&lang_menu)?;
-
-    #[cfg(debug_assertions)]
-    {
-        let devtools =
-            MenuItem::with_id(app, "open_devtools", l("open_devtools"), true, None::<&str>)?;
-        menu.append(&devtools)?;
-    }
-    Ok(menu)
-}
-
-/// 前端切换语言后调用：按新语言重建原生菜单。与当前 locale 相同则跳过，避免无谓重建。
-#[tauri::command]
-fn set_locale(app: AppHandle, lang: String) -> Result<(), String> {
-    {
-        let state = app.state::<AppState>();
-        let mut cur = state.locale.lock().unwrap_or_else(|e| e.into_inner());
-        if *cur == lang {
-            return Ok(());
-        }
-        *cur = lang.clone();
-    }
-    let menu = build_menu(&app, &lang).map_err(|e| e.to_string())?;
-    app.set_menu(menu).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 /// 注册一个读取缓存图片目录的自定义协议处理器。
 /// `scheme://localhost/<id>.jpg` 会被映射到 `dir/<id>.jpg` 并以 image/jpeg 返回。
 fn image_protocol<R: tauri::Runtime>(
@@ -339,7 +233,7 @@ fn image_protocol<R: tauri::Runtime>(
         let rel = request.uri().path().trim_start_matches('/').to_string();
         // 合法请求恒为 "<blake3 hex>.jpg"：白名单校验文件名本身，从根上杜绝
         // 路径穿越（含 ..、/、子目录），不再依赖 canonicalize 兼任存在性校验。
-        let valid = rel.strip_suffix(".jpg").map_or(false, |stem| {
+        let valid = rel.strip_suffix(".jpg").is_some_and(|stem| {
             !stem.is_empty() && stem.bytes().all(|b| b.is_ascii_hexdigit())
         });
         let requested = dir_fn().join(&rel);
@@ -364,16 +258,18 @@ fn image_protocol<R: tauri::Runtime>(
 pub fn run() {
     cache::ensure_dirs();
     cache::migrate_previews();
+    cache::prune_viewer_cache(30);
     logging::init();
     tracing::info!(env = cache::ENV_NAME, "应用启动");
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .manage(OpenState::default())
         .register_asynchronous_uri_scheme_protocol("thumb", image_protocol(cache::thumbs_dir))
         .register_asynchronous_uri_scheme_protocol("preview", image_protocol(cache::previews_dir))
+        .register_asynchronous_uri_scheme_protocol("vpreview", image_protocol(cache::viewer_dir))
         .setup(|app| {
-            let conn = db::open().map_err(|e| format!("无法初始化数据库: {e}"))?;
+            let conn = open_db_with_recovery()?;
             app.manage(AppState {
                 db: Mutex::new(conn),
                 scanning: AtomicBool::new(false),
@@ -381,65 +277,80 @@ pub fn run() {
                 locale: Mutex::new("zh".to_string()),
             });
 
-            // 主窗口由 Rust 创建（而非 tauri.conf.json），以便用 traffic_light_position
-            // 把 macOS 红绿灯下移，垂直对齐到工具栏中心。
-            // 普通不透明窗口，全部配色由前端 CSS（纯白实底）控制。
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("照片浏览器")
-                .inner_size(1280.0, 840.0)
-                .min_inner_size(880.0, 560.0)
-                .title_bar_style(TitleBarStyle::Overlay)
-                .hidden_title(true)
-                .traffic_light_position(LogicalPosition::new(20.0, 22.0))
-                .build()?;
+            // dev 模式下文件关联不生效：支持 argv 传媒体文件路径模拟"打开方式"
+            // （pnpm tauri dev -- -- /path/to/xx.jpg）
+            #[cfg(debug_assertions)]
+            if let Some(p) = std::env::args().skip(1).find(|a| {
+                let p = Path::new(a);
+                p.is_file() && has_media_ext(p)
+            }) {
+                allow_asset_dir(app.handle(), Path::new(&p));
+                lock_pending(&app.state::<OpenState>()).push(p);
+            }
 
-            // 原生菜单栏：默认菜单 + “目录”子菜单（+ dev 调试入口），按语言构建。
-            // 启动先用中文，前端 ready 后通过 set_locale 同步到实际语言。
-            let menu = build_menu(&app.handle().clone(), "zh")?;
+            // 双击文件冷启动时 macOS 的 Opened 事件先于 setup 到达（路径已在缓冲）：
+            // 只开查看器窗口，不带出主浏览器界面。正常启动则只开主窗口。
+            // 窗口均由 Rust 创建（而非 tauri.conf.json），以便定制红绿灯/深色底。
+            let has_pending = !lock_pending(&app.state::<OpenState>()).is_empty();
+            if has_pending {
+                create_viewer_window(app)?;
+            } else {
+                create_main_window(app)?;
+            }
+            app.state::<OpenState>().ready.store(true, Ordering::SeqCst);
+
+            // 原生菜单栏：启动先用中文，前端 ready 后通过 set_locale 同步到实际语言。
+            let menu = menu::build_menu(app.handle(), "zh")?;
             app.set_menu(menu)?;
-            app.on_menu_event(|_app, event| {
-                #[cfg(debug_assertions)]
-                if event.id().as_ref() == "open_devtools" {
-                    if let Some(w) = _app.get_webview_window("main") {
-                        w.open_devtools();
-                    }
-                    return;
-                }
-                // 语言切换：重建菜单（更新勾选）+ 通知前端切换语言
-                let id = event.id().as_ref();
-                if id == "lang_zh" || id == "lang_en" {
-                    let lang = if id == "lang_en" { "en" } else { "zh" };
-                    *_app.state::<AppState>().locale.lock().unwrap_or_else(|e| e.into_inner()) =
-                        lang.to_string();
-                    if let Ok(menu) = build_menu(_app, lang) {
-                        let _ = _app.set_menu(menu);
-                    }
-                    let _ = _app.emit("locale-changed", lang);
-                    return;
-                }
-                let dir = match id {
-                    "open_data" => cache::data_dir(),
-                    "open_cache" => cache::cache_dir(),
-                    "open_logs" => cache::logs_dir(),
-                    _ => return,
-                };
-                if let Err(e) = std::process::Command::new("open").arg(&dir).spawn() {
-                    tracing::warn!(error = %e, dir = %dir.display(), "打开目录失败");
-                }
-            });
+            app.on_menu_event(|app, event| menu::handle_menu_event(app, &event));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            scan_directory,
-            cancel_scan,
+            scan::scan_directory,
+            scan::cancel_scan,
             video_support,
             app_info,
             query_photos,
             get_facets,
             ensure_preview,
             reveal_in_finder,
-            set_locale,
+            menu::set_locale,
+            take_pending_open,
+            viewer::list_siblings,
+            viewer::viewer_item,
+            viewer::viewer_preview,
+            viewer::viewer_trash,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // macOS "打开方式"/拖到 Dock 图标：冷启动时先于 setup 到达，只入缓冲；
+            // 热运行时聚焦（或创建）查看器窗口并通知前端拉取。
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = event {
+                let paths: Vec<String> = urls
+                    .iter()
+                    .filter_map(|u| u.to_file_path().ok())
+                    .filter(|p| has_media_ext(p))
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect();
+                if paths.is_empty() {
+                    return;
+                }
+                for p in &paths {
+                    allow_asset_dir(app, Path::new(p));
+                }
+                let open_state = app.state::<OpenState>();
+                lock_pending(&open_state).extend(paths);
+                if open_state.ready.load(Ordering::SeqCst) {
+                    if let Some(w) = app.get_webview_window("viewer") {
+                        let _ = app.emit_to("viewer", "viewer-open-pending", ());
+                        let _ = w.unminimize();
+                        let _ = w.set_focus();
+                    } else if let Err(e) = create_viewer_window(app) {
+                        tracing::error!(error = %e, "创建查看器窗口失败");
+                    }
+                }
+            }
+        });
 }

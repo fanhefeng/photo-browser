@@ -10,9 +10,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::media::MediaItem;
 
-/// 打开（并初始化）索引数据库
+/// 打开（并初始化）索引数据库。
+/// busy_timeout：WAL 只解决读写并发，写写仍互斥——扫描的大事务持锁期间，
+/// 查看器的删除走共享连接写库，不设超时会立刻得到 SQLITE_BUSY 而丢失删除。
 pub fn open() -> rusqlite::Result<Connection> {
     let conn = Connection::open(crate::cache::db_path())?;
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     init_schema(&conn)?;
@@ -156,12 +159,12 @@ pub struct Filter {
     pub root: Option<String>,
     /// 文件名关键字
     pub text: Option<String>,
-    /// 当前“分组查看”所选的维度（kind/year/camera/focal/iso/format/gps），为空则看全部。
+    /// 当前“分组查看”所选的维度（kind/year/camera/format/gps），为空则看全部。
     /// 全局单选：同一时刻只激活一个分组，切换即替换。见 `dim_sql`。
     pub group_dim: Option<String>,
-    /// 该维度下所选的分类 key（如 "2024" / "wide" / "unknown"）。
+    /// 该维度下所选的分类 key（如 "2024" / "unknown"）。
     pub group_key: Option<String>,
-    /// 排序字段：taken_at | filename | file_size | width | iso | focal_length
+    /// 排序字段：taken_at | filename | file_size | width | iso | focal_length | mtime
     pub sort_by: Option<String>,
     /// asc | desc
     pub sort_dir: Option<String>,

@@ -60,11 +60,59 @@ export function setLocale(lang: string): Promise<void> {
   return invoke("set_locale", { lang });
 }
 
-/** 缩略图 URL（自定义协议，WebView 原生加载/缓存） */
-export const thumbUrl = (id: string) => `thumb://localhost/${id}.jpg`;
+// —— 查看器模式（"打开方式"进入的独立窗口）——
 
-/** 大图预览 URL（需先调用 ensurePreview 生成） */
-export const previewUrl = (id: string) => `preview://localhost/${id}.jpg`;
+/** 同目录兄弟文件的轻量条目 */
+export interface SiblingItem {
+  path: string;
+  filename: string;
+  ext: string;
+  kind: "photo" | "video";
+}
+
+export interface Siblings {
+  items: SiblingItem[];
+  /** 打开的文件在 items 中的下标 */
+  index: number;
+}
+
+/** 取走并清空"待打开文件"缓冲（挂载时与收到 viewer-open-pending 事件时调用） */
+export function takePendingOpen(): Promise<string[]> {
+  return invoke<string[]>("take_pending_open");
+}
+
+/** 列出同目录全部媒体文件（按文件名自然排序）及当前文件下标 */
+export function listSiblings(path: string): Promise<Siblings> {
+  return invoke<Siblings>("list_siblings", { path });
+}
+
+/** 单个文件的完整元数据（信息面板用），不依赖索引 */
+export function viewerItem(path: string): Promise<MediaItem> {
+  return invoke<MediaItem>("viewer_item", { path });
+}
+
+/** WebView 无法原生解码时的兜底：全分辨率转 JPEG，返回缓存 id */
+export function viewerPreview(path: string): Promise<string> {
+  return invoke<string>("viewer_preview", { path });
+}
+
+/** 移入废纸篓（同时清理索引与缩略图/预览缓存） */
+export function viewerTrash(path: string): Promise<void> {
+  return invoke("viewer_trash", { path });
+}
+
+/** 查看器全分辨率转码缓存 URL */
+export const vpreviewUrl = (id: string) => `vpreview://localhost/${id}.jpg`;
+
+/** 缩略图 URL（自定义协议，WebView 原生加载/缓存）。
+ *  id = 路径哈希，文件内容变了 URL 不变——协议层带 1 年强缓存，
+ *  必须用 mtime 做版本参数，文件更新后才能击穿缓存拿到重建的缩略图。 */
+export const thumbUrl = (id: string, mtime: number) =>
+  `thumb://localhost/${id}.jpg?v=${mtime}`;
+
+/** 大图预览 URL（需先调用 ensurePreview 生成）。版本参数同 thumbUrl。 */
+export const previewUrl = (id: string, mtime: number) =>
+  `preview://localhost/${id}.jpg?v=${mtime}`;
 
 /** 原始文件 URL（走 Tauri asset 协议）。
  *  视频用它支持 Range 拖动进度；浏览器可直接解码的图片用它呈现原图清晰度。 */

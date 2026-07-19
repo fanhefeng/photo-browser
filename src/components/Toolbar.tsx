@@ -59,6 +59,7 @@ export default function Toolbar({
         <button
           className="btn btn--open"
           onClick={onOpen}
+          disabled={scanning}
           title={t("toolbar.openTitle")}
         >
           <FolderIcon />

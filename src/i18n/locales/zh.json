@@ -20,7 +20,8 @@
     "file_size": "文件大小",
     "width": "分辨率",
     "iso": "ISO",
-    "focal_length": "焦距"
+    "focal_length": "焦距",
+    "mtime": "修改时间"
   },
   "sidebar": {
     "notLoaded": "尚未加载照片",
@@ -51,7 +52,10 @@
   "grid": {
     "empty": "没有符合条件的照片",
     "emptyHint": "试试切换左侧分类，或点「显示全部」",
-    "view": "查看 {{name}}"
+    "view": "查看 {{name}}",
+    "importing": "正在导入照片…",
+    "importingScan": "正在扫描文件…",
+    "importingCount": "已处理 {{done}} / {{total}}"
   },
   "lightbox": {
     "prev": "上一张",
@@ -60,7 +64,7 @@
     "videoErrorSub": "可能是编码不受 WebView 支持（如部分 MOV/HEVC）",
     "zoomOut": "缩小",
     "zoomIn": "放大",
-    "fit": "适应屏幕"
+    "fit": "适应窗口"
   },
   "detail": {
     "field": {
@@ -81,6 +85,18 @@
     "video": "视频",
     "reveal": "在访达中显示",
     "close": "关闭 (Esc)"
+  },
+  "viewer": {
+    "info": "信息 (I)",
+    "hideInfo": "收起信息 (I)",
+    "trash": "移到废纸篓 (⌫)",
+    "fullscreen": "全屏",
+    "exitFullscreen": "退出全屏 (Esc)",
+    "close": "关闭",
+    "actualSize": "实际大小（1 图像像素 = 1 设备像素）",
+    "empty": "没有可显示的文件",
+    "trashFailed": "移到废纸篓失败",
+    "loadFailed": "无法显示该图片"
   },
   "banner": {
     "ffmpegMissing": "未检测到 ffmpeg / ffprobe，视频将无法生成封面与元数据。可通过 Homebrew 安装：brew install ffmpeg",
