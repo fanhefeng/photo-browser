@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "site/**"
+      - "package.json" # 版本号变化时也重新部署，刷新官网显示的版本
       - ".github/workflows/deploy-pages.yml"
   workflow_dispatch:
 
@@ -27,6 +28,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      # 把 package.json 的版本号注入官网下载按钮（单一数据源，发版无需手改官网）
+      - name: Inject version into site
+        run: |
+          VER=$(jq -r .version package.json)
+          sed -i "s#<span class=\"ver\">v[0-9][0-9.]*</span>#<span class=\"ver\">v${VER}</span>#g" site/index.html
+          echo "Injected version v${VER}"
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload site/
