@@ -1,44 +1,37 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="bgB" x1="180" y1="140" x2="860" y2="900" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#5fa0ff"/>
-      <stop offset="1" stop-color="#2a55da"/>
+    <linearGradient id="bgC" x1="0" y1="104" x2="0" y2="920" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F8F1E2"/>
+      <stop offset="1" stop-color="#EFE3CB"/>
     </linearGradient>
-    <linearGradient id="skyB" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#cfe6ff"/>
-      <stop offset="1" stop-color="#f3f8ff"/>
+    <linearGradient id="skyC" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9AD1F5"/>
+      <stop offset="1" stop-color="#D9EDFB"/>
     </linearGradient>
-    <clipPath id="frontB"><rect x="362" y="430" width="300" height="224" rx="28"/></clipPath>
-    <filter id="bodyShadowB" x="-20%" y="-20%" width="140%" height="150%">
-      <feDropShadow dx="0" dy="16" stdDeviation="22" flood-color="#0a1c4d" flood-opacity="0.30"/>
-    </filter>
-    <filter id="cardShadowB" x="-40%" y="-40%" width="180%" height="180%">
-      <feDropShadow dx="0" dy="7" stdDeviation="11" flood-color="#0a1c4d" flood-opacity="0.24"/>
+    <clipPath id="bodyC"><rect x="104" y="104" width="816" height="816" rx="182"/></clipPath>
+    <filter id="bodyShadowC" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="16" stdDeviation="22" flood-color="#4a3c22" flood-opacity="0.30"/>
     </filter>
   </defs>
-  <g filter="url(#bodyShadowB)">
-    <rect x="104" y="104" width="816" height="816" rx="182" fill="url(#bgB)"/>
+  <g filter="url(#bodyShadowC)">
+    <rect x="104" y="104" width="816" height="816" rx="182" fill="url(#bgC)"/>
   </g>
 
-  <!-- 后两张（扇形错位，边角明显露出） -->
-  <g filter="url(#cardShadowB)">
-    <g transform="rotate(13 512 542) translate(30 -4)">
-      <rect x="362" y="430" width="300" height="224" rx="28" fill="#cfe0fa"/>
+  <!-- 奶油贴纸：双相纸 -->
+  <g clip-path="url(#bodyC)">
+    <g transform="translate(104 104) scale(0.796875)">
+      <!-- 后一张 -->
+      <g transform="rotate(-8 420 560)">
+        <rect x="208" y="296" width="472" height="472" rx="28" fill="#E4D6B9" stroke="#2E2620" stroke-width="14"/>
+      </g>
+      <!-- 前一张（带阴影） -->
+      <g transform="rotate(6 560 500)">
+        <rect x="318" y="272" width="472" height="472" rx="28" transform="translate(14 18)" fill="#D9C8A6"/>
+        <rect x="304" y="254" width="472" height="472" rx="28" fill="#FFF8EB" stroke="#2E2620" stroke-width="16"/>
+        <rect x="342" y="292" width="396" height="316" rx="14" fill="url(#skyC)" stroke="#2E2620" stroke-width="12"/>
+        <circle cx="452" cy="392" r="42" fill="#FFD666" stroke="#2E2620" stroke-width="12"/>
+        <path d="M 348 602 L 474 466 L 556 550 L 642 452 L 732 558 L 732 602 Z" fill="#4E8AC9" stroke="#2E2620" stroke-width="12" stroke-linejoin="round"/>
+      </g>
     </g>
-    <g transform="rotate(-10 512 542) translate(-30 2)">
-      <rect x="362" y="430" width="300" height="224" rx="28" fill="#e6eefb"/>
-    </g>
   </g>
-
-  <!-- 前卡（含风景） -->
-  <g filter="url(#cardShadowB)">
-    <rect x="362" y="430" width="300" height="224" rx="28" fill="#ffffff"/>
-  </g>
-  <g clip-path="url(#frontB)">
-    <rect x="362" y="430" width="300" height="224" fill="url(#skyB)"/>
-    <circle cx="444" cy="496" r="31" fill="#ffc23d"/>
-    <path d="M362 598 L450 506 L520 572 L580 528 L662 606 L662 654 L362 654 Z" fill="#5b8de8"/>
-    <path d="M362 654 L432 576 L512 640 L582 590 L662 642 L662 654 Z" fill="#2f63d6"/>
-  </g>
-  <rect x="362" y="430" width="300" height="224" rx="28" fill="none" stroke="#ffffff" stroke-width="10" opacity="0.9"/>
 </svg>
