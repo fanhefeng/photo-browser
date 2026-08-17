@@ -3,6 +3,7 @@ name = "photo-browser"
 version = "0.4.1"
 description = "本地优先的 macOS 照片/视频浏览器（Tauri 2 + React）"
 authors = ["fhf"]
+license = "MIT"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
