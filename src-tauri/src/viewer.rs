@@ -29,77 +29,83 @@ pub struct Siblings {
 }
 
 /// 列出同目录（不递归）的全部媒体文件，按文件名自然排序（近似访达）。
+/// async + spawn_blocking：读目录 + 逐项 stat（大目录/网络卷上可达秒级），
+/// 同步命令会在主线程内联执行并卡顿 UI。
 #[tauri::command]
-pub fn list_siblings(path: String) -> Result<Siblings, String> {
-    let file = PathBuf::from(&path);
-    let dir = file
-        .parent()
-        .ok_or_else(|| "backend.notDirectory".to_string())?;
-    let mut items: Vec<SiblingItem> = std::fs::read_dir(dir)
-        .map_err(|e| e.to_string())?
-        .flatten()
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with('.') || !entry.file_type().ok()?.is_file() {
-                return None;
-            }
-            let p = entry.path();
-            let ext = p.extension()?.to_str()?.to_lowercase();
-            if !media::is_media_ext(&ext) {
-                return None;
-            }
-            Some(SiblingItem {
-                path: p.to_string_lossy().to_string(),
-                filename: name,
-                kind: media::kind_for_ext(&ext).into(),
-                ext,
-            })
-        })
-        .collect();
-    items.sort_by(|a, b| natural_cmp(&a.filename, &b.filename));
-
-    // 定位打开的文件：先精确比路径；不一致（符号链接等）再按 canonicalize 比
-    let located = items
-        .iter()
-        .position(|it| it.path == path)
-        .or_else(|| {
-            let canon = file.canonicalize().ok()?;
-            items
-                .iter()
-                .position(|it| Path::new(&it.path).canonicalize().ok().as_deref() == Some(&canon))
-        });
-    // 打开的文件被列表过滤掉了（隐藏文件如 .pano.jpg / ._xxx.jpg）：
-    // 单独插入到自然排序位置——绝不能静默回落到第 0 项显示别的文件。
-    let index = match located {
-        Some(i) => i,
-        None if file.is_file() => {
-            let filename = file
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-            let ext = file
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| e.to_lowercase())
-                .unwrap_or_default();
-            let pos = items
-                .partition_point(|it| natural_cmp(&it.filename, &filename) == Ordering::Less);
-            items.insert(
-                pos,
-                SiblingItem {
-                    path: path.clone(),
-                    filename,
+pub async fn list_siblings(path: String) -> Result<Siblings, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let file = PathBuf::from(&path);
+        let dir = file
+            .parent()
+            .ok_or_else(|| "backend.notDirectory".to_string())?;
+        let mut items: Vec<SiblingItem> = std::fs::read_dir(dir)
+            .map_err(|e| e.to_string())?
+            .flatten()
+            .filter_map(|entry| {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with('.') || !entry.file_type().ok()?.is_file() {
+                    return None;
+                }
+                let p = entry.path();
+                let ext = p.extension()?.to_str()?.to_lowercase();
+                if !media::is_media_ext(&ext) {
+                    return None;
+                }
+                Some(SiblingItem {
+                    path: p.to_string_lossy().to_string(),
+                    filename: name,
                     kind: media::kind_for_ext(&ext).into(),
                     ext,
-                },
-            );
-            pos
-        }
-        // 文件已不存在（打开与列目录之间被删）：保持旧行为回落 0
-        None => 0,
-    };
-    tracing::info!(dir = %dir.display(), count = items.len(), index, "查看器：列出同目录媒体");
-    Ok(Siblings { items, index })
+                })
+            })
+            .collect();
+        items.sort_by(|a, b| natural_cmp(&a.filename, &b.filename));
+
+        // 定位打开的文件：先精确比路径；不一致（符号链接等）再按 canonicalize 比
+        let located = items
+            .iter()
+            .position(|it| it.path == path)
+            .or_else(|| {
+                let canon = file.canonicalize().ok()?;
+                items.iter().position(|it| {
+                    Path::new(&it.path).canonicalize().ok().as_deref() == Some(&canon)
+                })
+            });
+        // 打开的文件被列表过滤掉了（隐藏文件如 .pano.jpg / ._xxx.jpg）：
+        // 单独插入到自然排序位置——绝不能静默回落到第 0 项显示别的文件。
+        let index = match located {
+            Some(i) => i,
+            None if file.is_file() => {
+                let filename = file
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let ext = file
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.to_lowercase())
+                    .unwrap_or_default();
+                let pos = items
+                    .partition_point(|it| natural_cmp(&it.filename, &filename) == Ordering::Less);
+                items.insert(
+                    pos,
+                    SiblingItem {
+                        path: path.clone(),
+                        filename,
+                        kind: media::kind_for_ext(&ext).into(),
+                        ext,
+                    },
+                );
+                pos
+            }
+            // 文件已不存在（打开与列目录之间被删）：保持旧行为回落 0
+            None => 0,
+        };
+        tracing::info!(dir = %dir.display(), count = items.len(), index, "查看器：列出同目录媒体");
+        Ok(Siblings { items, index })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 单个文件的完整元数据（信息面板用）。不生成缩略图、不写库。

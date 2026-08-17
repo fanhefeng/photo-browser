@@ -35,7 +35,7 @@ cargo clippy                            # lint
 
 **缩略图/预览走自定义 URI 协议，不走 IPC**。这是性能丝滑的根本——`thumb://localhost/<id>.jpg` 与 `preview://localhost/<id>.jpg` 由 `lib.rs` 的 `image_protocol()` 注册，WebView 原生加载并缓存图片字节，绝不通过 IPC 传 base64。前端用 `api.ts` 的 `thumbUrl()`/`previewUrl()` 构造这些 URL。原图（JPG/PNG/WebP 等 WebView 可直接解码的）和视频则走 Tauri 内置 `asset:` 协议（`convertFileSrc`），其文件系统作用域在 `tauri.conf.json` 的 `assetProtocol.scope` 限定为 `$HOME/**` 和 `/Volumes/**`。新增任何图片来源都要同步更新 `tauri.conf.json` 的 CSP（`img-src`/`media-src`）。
 
-**两条数据库连接，靠 WAL 并发**：`AppState.db` 是查询用的共享 `Mutex<Connection>`；扫描在 `spawn_blocking` 里用 `db::open()` 开**独立连接**写入。二者靠 SQLite WAL 模式并发读写，所以扫描进行中前端仍可查询。
+**两条数据库连接，靠 WAL 并发**：`AppState.db` 是查询用的共享 `Arc<Mutex<Connection>>`（Arc 是为了让 async 命令把连接 clone 进 `spawn_blocking` 闭包）；扫描在 `spawn_blocking` 里用 `db::open()` 开**独立连接**写入。二者靠 SQLite WAL 模式并发读写，所以扫描进行中前端仍可查询。
 
 **`photos` 表同时存照片和视频**——靠 `kind` 列（`'photo'`/`'video'`）区分，这是历史命名，别被表名误导。视频不生成 `preview`（前端直接播原文件），`ensure_preview` 命令对 video 直接返回 false。
 

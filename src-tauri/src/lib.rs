@@ -23,12 +23,13 @@ use media::MediaItem;
 use scan::has_media_ext;
 
 /// 全局状态。
-/// - `db`：用于查询的共享连接（扫描走独立连接，靠 SQLite WAL 并发读写）。
+/// - `db`：用于查询的共享连接（扫描走独立连接，靠 SQLite WAL 并发读写）；
+///   Arc 包一层，让 async 命令能把连接 clone 进 spawn_blocking 闭包。
 /// - `scanning`：是否有扫描在进行，用于拒绝并发扫描。
 /// - `cancel`：取消标志，扫描循环会检查它（Arc 以便安全地共享进 rayon 线程）。
 /// - `locale`：当前界面语言（zh/en），用于菜单重建去重。
 struct AppState {
-    db: Mutex<rusqlite::Connection>,
+    db: Arc<Mutex<rusqlite::Connection>>,
     scanning: AtomicBool,
     cancel: Arc<AtomicBool>,
     locale: Mutex<String>,
@@ -178,11 +179,17 @@ fn create_viewer_window<M: Manager<tauri::Wry>>(manager: &M) -> tauri::Result<()
 }
 
 /// 视频功能是否可用（依赖 ffprobe/ffmpeg）。前端据此提示用户。
+/// async + spawn_blocking：探测要同步 spawn ffprobe/ffmpeg 子进程，
+/// 启动时在主线程内联跑会卡首帧 UI。
 #[tauri::command]
-fn video_support() -> bool {
-    let ok = media::has_video_tools();
-    tracing::info!(available = ok, "视频工具(ffprobe/ffmpeg)检测");
-    ok
+async fn video_support() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let ok = media::has_video_tools();
+        tracing::info!(available = ok, "视频工具(ffprobe/ffmpeg)检测");
+        ok
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// 运行环境与各目录地址（便于诊断与定位日志/缓存）。
@@ -206,16 +213,33 @@ fn app_info() -> AppInfo {
     }
 }
 
+/// 按筛选条件查询媒体列表。
+/// async + spawn_blocking：同步命令会在主线程内联执行，大索引上的
+/// SQLite 查询（或被扫描写入短暂顶锁）会卡顿 UI；连接 clone Arc 进闭包。
 #[tauri::command]
-fn query_photos(state: State<AppState>, filter: Filter) -> Result<Vec<MediaItem>, String> {
-    let conn = lock_db(&state.db);
-    db::query(&conn, &filter).map_err(|e| e.to_string())
+async fn query_photos(
+    state: State<'_, AppState>,
+    filter: Filter,
+) -> Result<Vec<MediaItem>, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = lock_db(&db);
+        db::query(&conn, &filter).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
+/// 分面统计（侧栏计数）。async + spawn_blocking 的理由同 query_photos。
 #[tauri::command]
-fn get_facets(state: State<AppState>, root: Option<String>) -> Result<Facets, String> {
-    let conn = lock_db(&state.db);
-    db::facets(&conn, &root).map_err(|e| e.to_string())
+async fn get_facets(state: State<'_, AppState>, root: Option<String>) -> Result<Facets, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = lock_db(&db);
+        db::facets(&conn, &root).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 并发预览生成的上限。全分辨率解码单张就要吃满数个核、峰值数百 MB 内存，
@@ -224,8 +248,9 @@ fn get_facets(state: State<AppState>, root: Option<String>) -> Result<Facets, St
 static PREVIEW_SEMAPHORE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(3);
 
 /// 懒生成大图预览，返回是否就绪。
-/// async + spawn_blocking：全分辨率解码/sips 转码耗时数百毫秒起，
-/// 同步命令会在主线程执行并冻结整个 UI（窗口拖动/菜单/渲染）。
+/// async + spawn_blocking：全分辨率解码/sips 转码耗时数百毫秒起。
+/// 同步命令会在主线程内联执行并冻结整个 UI（窗口拖动/菜单/渲染），
+/// 所以本项目凡可能耗时的命令（DB 查询/子进程/目录遍历）都按此模式 async 化。
 #[tauri::command]
 async fn ensure_preview(state: State<'_, AppState>, id: String) -> Result<bool, String> {
     let item = {
@@ -308,7 +333,7 @@ pub fn run() {
         .setup(|app| {
             let conn = open_db_with_recovery()?;
             app.manage(AppState {
-                db: Mutex::new(conn),
+                db: Arc::new(Mutex::new(conn)),
                 scanning: AtomicBool::new(false),
                 cancel: Arc::new(AtomicBool::new(false)),
                 locale: Mutex::new("zh".to_string()),
