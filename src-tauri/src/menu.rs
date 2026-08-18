@@ -69,14 +69,21 @@ pub fn handle_menu_event(app: &AppHandle, event: &tauri::menu::MenuEvent) {
     }
     // 语言切换：重建菜单（更新勾选）+ 通知前端切换语言
     let id = event.id().as_ref();
-    // 检查更新：广播给前端（主窗口的 UpdateBanner 监听并驱动检查/下载/重启）
-    if id == "check_update" {
-        let _ = app.emit("check-update-requested", ());
-        return;
-    }
-    // 设置：广播给前端（主窗口 App 监听并打开设置弹窗）
-    if id == "open_settings" {
-        let _ = app.emit("open-settings", ());
+    // 「检查更新…」与「设置…」的 UI（UpdateBanner / SettingsDialog）都只挂在主窗口，
+    // 但菜单是应用级的：查看器窗口聚焦时也能触发（主窗口运行中再「打开方式」会两窗并存）。
+    // 所以定向发给 main 并把它带到前台，否则横幅/弹窗在背后打开，用户完全看不见。
+    if id == "check_update" || id == "open_settings" {
+        let Some(w) = app.get_webview_window("main") else {
+            return; // 纯查看器模式（双击文件冷启动）没有主窗口，静默忽略
+        };
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+        let event = if id == "check_update" {
+            "check-update-requested"
+        } else {
+            "open-settings"
+        };
+        let _ = app.emit_to("main", event, ());
         return;
     }
     if id == "lang_zh" || id == "lang_en" {

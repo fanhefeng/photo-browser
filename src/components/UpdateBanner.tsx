@@ -26,24 +26,36 @@ export default function UpdateBanner() {
   const updateRef = useRef<Update | null>(null);
   // 检查与下载都是长任务：忙时忽略重复触发（菜单连点、自动+手动撞车）
   const busyRef = useRef(false);
+  // 本轮任务是否要把结果显示出来。手动触发为 true；自动检查为 false（无更新时静默收场）。
+  // 手动触发撞上正在跑的自动检查时会把它翻成 true「接管」结果显示——否则菜单点了
+  // 毫无反应，看起来像坏了。下载期间也是 true：进度条本身就是反馈，别被覆盖掉。
+  const reportRef = useRef(false);
 
   const runCheck = useCallback(async (manual: boolean) => {
-    if (busyRef.current) return;
+    if (busyRef.current) {
+      if (manual && !reportRef.current) {
+        reportRef.current = true;
+        setPhase({ kind: "checking" });
+      }
+      return;
+    }
     busyRef.current = true;
+    reportRef.current = manual;
     if (manual) setPhase({ kind: "checking" });
     try {
       const update = await check();
       if (update) {
         updateRef.current = update;
         setPhase({ kind: "available", version: update.version });
-      } else if (manual) {
+      } else if (reportRef.current) {
         setPhase({ kind: "upToDate" });
       }
     } catch (e) {
       // 自动检查失败保持安静：离线是常态，不值得打扰
-      if (manual) setPhase({ kind: "error", stage: "check", msg: String(e) });
+      if (reportRef.current) setPhase({ kind: "error", stage: "check", msg: String(e) });
     } finally {
       busyRef.current = false;
+      reportRef.current = false;
     }
   }, []);
 
@@ -65,6 +77,7 @@ export default function UpdateBanner() {
     const update = updateRef.current;
     if (!update || busyRef.current) return;
     busyRef.current = true;
+    reportRef.current = true;
     setPhase({ kind: "downloading", pct: null });
     try {
       let total: number | undefined;
@@ -82,10 +95,13 @@ export default function UpdateBanner() {
           setPhase({ kind: "installing" });
         }
       });
+      // 成功路径不重置 busyRef/reportRef：relaunch 会立刻换掉整个进程，
+      // 重置反而给了「安装完成到进程消失」这段空隙再次触发下载的机会。
       await relaunch();
     } catch (e) {
       setPhase({ kind: "error", stage: "install", msg: String(e) });
       busyRef.current = false;
+      reportRef.current = false;
     }
   };
 

@@ -24,17 +24,45 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
         : "en"
   );
 
-  // Esc 关闭：捕获阶段拦截，避免同时触发 Lightbox 的窗口级 Esc（会连带关大图）
+  // Esc 关闭：捕获阶段拦截，避免同时触发 Lightbox 的窗口级 Esc（会连带关大图）。
+  // 同一个 handler 兼管 Tab 焦点陷阱——aria-modal 只告诉读屏软件"背景不可达"，
+  // 真把 Tab 拦在弹窗内还得自己来。关闭后焦点归还打开它的控件（齿轮按钮 / ⌘, 时为 body）。
   useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
     boxRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
         onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const box = boxRef.current;
+      if (!box) return;
+      // Switch 的 checkbox 是 opacity:0 而非 display:none，仍可聚焦，无需特殊处理
+      const items = Array.from(
+        box.querySelectorAll<HTMLElement>("button, input, select, [tabindex]:not([tabindex='-1'])")
+      ).filter((el) => !el.hasAttribute("disabled"));
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (!box.contains(active)) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && (active === first || active === box)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
       }
     };
     window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      opener?.focus();
+    };
   }, [onClose]);
 
   const changeLang = async (choice: LangChoice) => {
