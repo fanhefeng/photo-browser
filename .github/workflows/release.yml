@@ -1,18 +1,64 @@
 name: Release
 
-# 推送 v 开头的 tag（如 v0.1.0）即自动打包并发布 Release。
-# 发版流程：bump 版本号 → git tag vX.Y.Z → git push --tags
+# 发版 = 改版本号，没有别的手动步骤。
+#   pnpm bump 0.4.2 && git commit -am "chore: bump 0.4.2" && git push
+# 本工作流发现 package.json 的 version 还没有对应的 tag，就自动打 tag、构建、
+# 发布 Release。构建成功后由「Deploy site to GitHub Pages」接力更新官网——
+# 官网因此永远不会显示一个还下载不到 dmg 的版本号。
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
+    paths:
+      - "package.json" # 版本号的单一数据源
+      - ".github/workflows/release.yml"
+  workflow_dispatch: # 手动补发（例如构建挂了修复后重跑）
 
 permissions:
-  contents: write # tauri-action 创建 Release、上传 .dmg 需要写权限
+  contents: write # tauri-action 创建 tag/Release、上传 .dmg 需要写权限
 
 jobs:
+  # 版本号没变就不该重复发版，所以先查一遍 tag 是否已存在。
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 需要完整 tag 列表才能判断该版本发过没有
+
+      - name: Check version
+        id: check
+        run: |
+          set -euo pipefail
+          VER=$(jq -r .version package.json)
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+          # 四处版本号必须一致，否则 Release tag 会和产物文件名对不上。
+          # 正常用 `pnpm bump` 改就不会出现这种情况，这里只做兜底拦截。
+          TAURI=$(jq -r .version src-tauri/tauri.conf.json)
+          CARGO=$(grep -m1 '^version = ' src-tauri/Cargo.toml | cut -d'"' -f2)
+          if [ "$VER" != "$TAURI" ] || [ "$VER" != "$CARGO" ]; then
+            echo "::error::版本号不一致（package.json=$VER tauri.conf.json=$TAURI Cargo.toml=$CARGO），请用 pnpm bump <版本> 同步"
+            exit 1
+          fi
+
+          if git rev-parse "v$VER" >/dev/null 2>&1; then
+            echo "tag v$VER 已存在，本次只是普通提交，跳过发版"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "准备发布 v$VER"
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
   release:
+    needs: check
+    if: needs.check.outputs.should_release == 'true'
     runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -63,8 +109,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 照片浏览器 ${{ github.ref_name }}
+          tagName: v${{ env.VERSION }} # tag 由 tauri-action 按当前 commit 创建
+          releaseName: 照片浏览器 v${{ env.VERSION }}
           releaseBody: |
             ## 安装（macOS）
 
@@ -103,4 +149,4 @@ jobs:
 
           rm "$DMG"
           hdiutil convert "$RW" -format UDZO -imagekey zlib-level=9 -o "$DMG"
-          gh release upload "${{ github.ref_name }}" "$DMG" --clobber
+          gh release upload "v${VERSION}" "$DMG" --clobber

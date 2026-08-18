@@ -29,6 +29,31 @@ cargo clippy                            # lint
 
 前端无独立测试框架；`pnpm build` 的 `vp check` 即类型检查关。`RUST_LOG=debug` 可覆盖日志级别。
 
+## 发版：改版本号就够了
+
+```bash
+pnpm bump 0.4.2                      # 或 patch / minor / major
+git commit -am "chore: bump 0.4.2"
+git push
+```
+
+`pnpm bump` 是版本号的唯一入口，一次同步四处：`package.json`、`src-tauri/tauri.conf.json`、
+`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`。**别手改**——CI 会校验四处一致，不一致直接 fail。
+
+push 到 main 后 CI 全自动串起来：
+
+```
+package.json 的 version 变化
+  → Release：打 tag vX.Y.Z → 构建 dmg（内置 ffmpeg sidecar + 修复脚本）→ 发布 Release
+    → 构建成功 → Deploy site：部署官网，版本号取自最新 Release
+```
+
+关键约束：**官网只在 app 构建成功后才更新**（`deploy-pages.yml` 的 `workflow_run` 触发）。
+因为官网下载按钮指向 `releases/latest`，抢先部署会让页面显示一个还下载不到的版本号。
+纯 `site/**` 改动不受此限，照旧直接部署。
+
+版本号没变的普通提交不会触发发版（`check` job 发现 tag 已存在就跳过）。
+
 ## 架构要点（非显而易见）
 
 **数据流主轴**：扫描时一次性把所有元数据写进 SQLite，此后**所有筛选/排序都是数据库查询**，前端不持有原始文件句柄。改筛选逻辑通常只动 `db.rs` 的 `build_where` / `sort_column`，不碰扫描。

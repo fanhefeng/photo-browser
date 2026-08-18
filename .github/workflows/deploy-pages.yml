@@ -1,12 +1,17 @@
 name: Deploy site to GitHub Pages
 
 on:
+  # 纯官网改动（文案、样式、图片）直接部署——此时版本号没动，不存在超前展示的问题。
   push:
     branches: [main]
     paths:
       - "site/**"
-      - "package.json" # 版本号变化时也重新部署，刷新官网显示的版本
       - ".github/workflows/deploy-pages.yml"
+  # 发版时：等 Release 把 dmg 构建并发布成功之后才部署，否则官网会先亮出新版本号，
+  # 而下载按钮指向的 releases/latest 还停在旧版本（构建失败时更是永远对不上）。
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -21,6 +26,8 @@ concurrency:
 
 jobs:
   deploy:
+    # Release 失败/取消时不部署，官网保持在上一个真正可下载的版本
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -28,10 +35,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      # 把 package.json 的版本号注入官网下载按钮（单一数据源，发版无需手改官网）
+      # 官网下载按钮指向 releases/latest，所以版本号取自「最新已发布的 Release」而不是
+      # package.json——只有真的有 dmg 可下载的版本才配显示在官网上。
       - name: Inject version into site
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VER=$(jq -r .version package.json)
+          set -euo pipefail
+          VER=$(gh release view --json tagName --jq .tagName 2>/dev/null | sed 's/^v//' || true)
+          if [ -z "$VER" ]; then
+            VER=$(jq -r .version package.json)
+            echo "取不到 Release，回退用 package.json 的版本号"
+          fi
           sed -i "s#<span class=\"ver\">v[0-9][0-9.]*</span>#<span class=\"ver\">v${VER}</span>#g" site/index.html
           echo "Injected version v${VER}"
       - name: Configure Pages
