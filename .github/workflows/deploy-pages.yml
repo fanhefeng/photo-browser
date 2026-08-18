@@ -7,11 +7,9 @@ on:
     paths:
       - "site/**"
       - ".github/workflows/deploy-pages.yml"
-  # 发版时：等 Release 把 dmg 构建并发布成功之后才部署，否则官网会先亮出新版本号，
-  # 而下载按钮指向的 releases/latest 还停在旧版本（构建失败时更是永远对不上）。
-  workflow_run:
-    workflows: ["Release"]
-    types: [completed]
+  # 发版时由 Release 在 dmg 构建并发布成功后调用（见 release.yml 的 deploy-site job）。
+  # 官网因此永远不会先亮出一个 releases/latest 还下载不到的版本号。
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -26,8 +24,6 @@ concurrency:
 
 jobs:
   deploy:
-    # Release 失败/取消时不部署，官网保持在上一个真正可下载的版本
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

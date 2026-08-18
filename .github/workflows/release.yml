@@ -150,3 +150,13 @@ jobs:
           rm "$DMG"
           hdiutil convert "$RW" -format UDZO -imagekey zlib-level=9 -o "$DMG"
           gh release upload "v${VERSION}" "$DMG" --clobber
+
+  # app 构建成功后才更新官网——复用 deploy-pages.yml 那套部署逻辑，不重复实现。
+  # release 被跳过（版本号没变）时这个 job 也跟着跳过，官网不会被无谓地重新部署。
+  deploy-site:
+    needs: release
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/deploy-pages.yml

@@ -48,8 +48,9 @@ package.json 的 version 变化
     → 构建成功 → Deploy site：部署官网，版本号取自最新 Release
 ```
 
-关键约束：**官网只在 app 构建成功后才更新**（`deploy-pages.yml` 的 `workflow_run` 触发）。
-因为官网下载按钮指向 `releases/latest`，抢先部署会让页面显示一个还下载不到的版本号。
+关键约束：**官网只在 app 构建成功后才更新**——`release.yml` 的 `deploy-site` job（`needs: release`）
+以 `workflow_call` 复用 `deploy-pages.yml`，部署逻辑只有一份。因为官网下载按钮指向
+`releases/latest`，抢先部署会让页面显示一个还下载不到的版本号。
 纯 `site/**` 改动不受此限，照旧直接部署。
 
 版本号没变的普通提交不会触发发版（`check` job 发现 tag 已存在就跳过）。
