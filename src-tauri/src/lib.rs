@@ -326,6 +326,10 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // 应用内更新：检查/下载/安装由前端 UpdateBanner 驱动（@tauri-apps/plugin-updater），
+        // 端点与签名公钥见 tauri.conf.json 的 plugins.updater；process 插件提供更新后重启
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(OpenState::default())
         .register_asynchronous_uri_scheme_protocol("thumb", image_protocol(cache::thumbs_dir))
         .register_asynchronous_uri_scheme_protocol("preview", image_protocol(cache::previews_dir))

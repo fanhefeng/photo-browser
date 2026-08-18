@@ -115,10 +115,17 @@ jobs:
       # tauri-action 会自动跑 beforeBuildCommand(pnpm build)+ tauri build，
       # 然后用 tag 创建 Release 并上传生成的 .dmg / .app.tar.gz。
       # 版本号取自 src-tauri/tauri.conf.json，产物名形如 photo-browser_0.1.0_universal.dmg。
+      # TAURI_SIGNING_PRIVATE_KEY 是应用内更新（tauri-plugin-updater）的 minisign 私钥：
+      # 签出 .app.tar.gz.sig 供旧版验签，tauri-action 检测到 updater 产物后还会生成
+      # latest.json 一并上传（endpoint 指向 releases/latest/download/latest.json）。
+      # 密钥本体在维护者本机 ~/.tauri/photo-browser-updater.key（无密码），丢了就只能
+      # 换公钥重发一版——已装旧版将无法自动更新，务必保管好。
       - name: Build & release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tagName: v${{ env.VERSION }} # tag 由 tauri-action 按当前 commit 创建
           releaseName: 照片浏览器 v${{ env.VERSION }}
@@ -133,6 +140,8 @@ jobs:
                ```
 
             3. 视频封面与元数据所需的 `ffmpeg`/`ffprobe` 已内置在 App 内，无需另行安装。
+
+            **已装 v0.4.4 及以上版本？** 无需手动下载——App 启动时会自动提示升级，应用内更新不经过浏览器下载，**不会**再触发「已损坏」提示，也无需重跑 `xattr`。
 
             系统要求：Apple Silicon（M 系列）Mac，macOS 11 Big Sur 及以上。
           releaseDraft: false
