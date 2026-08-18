@@ -55,6 +55,15 @@ package.json 的 version 变化
 
 版本号没变的普通提交不会触发发版（`check` job 发现 tag 已存在就跳过）。
 
+**应用内更新（tauri-plugin-updater）**：发版产物额外含 `.app.tar.gz` + `.sig`（minisign 签名）与
+`latest.json`（tauri-action 自动生成），端点是 `releases/latest/download/latest.json`（见
+`tauri.conf.json` 的 `plugins.updater`）。签名私钥在维护者本机 `~/.tauri/photo-browser-updater.key`
+（无密码）+ 仓库 secret `TAURI_SIGNING_PRIVATE_KEY`——**私钥丢失则已装旧版全部无法自动更新**，只能
+换公钥重发。前端入口是 `components/UpdateBanner.tsx`（prod 启动 3s 后静默检查 + 原生菜单
+「检查更新…」广播 `check-update-requested` 手动触发），检查/下载/验签/替换 `.app` 全在 Rust 侧，
+不经浏览器下载所以更新后的 App 不带 quarantine，无需重跑 xattr。dev 下 endpoint 直接打线上库，
+自动检查已关（`import.meta.env.PROD`），手动检查在 latest.json 发布前会 404 报「检查失败」属预期。
+
 ## 架构要点（非显而易见）
 
 **数据流主轴**：扫描时一次性把所有元数据写进 SQLite，此后**所有筛选/排序都是数据库查询**，前端不持有原始文件句柄。改筛选逻辑通常只动 `db.rs` 的 `build_where` / `sort_column`，不碰扫描。
@@ -88,9 +97,10 @@ package.json 的 version 变化
 **前端（`src/`）**
 - `App.tsx` — 顶层状态与编排（目录、筛选、扫描进度、大图索引）；`refresh` 带防抖，扫描完成靠 `reloadKey` 触发重查。
 - `api.ts` — 所有 `invoke` 命令封装 + 图片/视频 URL 构造器（与后端命令一一对应）。
+- `settings.ts` + `themes.css` — 设置存储（localStorage `settings` 键 + `useSyncExternalStore`）与主题（皮肤）系统：全部主题 token 在 `themes.css` 的 `[data-theme]` 块（light/cream/dark），组件样式只消费变量；`initSettings()` 在 `main.tsx` React 渲染前应用（仅主窗口——查看器窗口固定深色玻璃不换肤，且 `html.viewer-window` 特异性高于 `[data-theme]`）。新增主题 = themes.css 加一块 + `THEMES` 注册一行 + i18n 加 `settings.theme.<id>`。缩略图大小走 `--thumb` 内联覆盖、悬停信息走 `html[data-hover-info]`。
 - `types.ts` — `MediaItem`/`Filter`/`Facets`，须与 `db.rs`/`media.rs` 的 serde 结构保持字段一致。
 - `ViewerApp.tsx` — 查看器窗口的顶层组件（兄弟列表/键盘/删除/信息面板），与 `App` 互不依赖。
-- `components/` — `Toolbar`（筛选/排序/搜索/扫描）、`Sidebar`（分面）、`PhotoGrid`（react-virtuoso 虚拟滚动）、`Lightbox`（大图，懒加载预览 + 相邻预热）、`media.tsx`（Lightbox 与查看器共享的 `VideoStage`/`ZoomBar`/`DetailPanel`）。
+- `components/` — `Toolbar`（筛选/排序/搜索/扫描）、`Sidebar`（分面）、`PhotoGrid`（react-virtuoso 虚拟滚动）、`Lightbox`（大图，懒加载预览 + 相邻预热）、`media.tsx`（Lightbox 与查看器共享的 `VideoStage`/`ZoomBar`/`DetailPanel`）、`SettingsDialog`（设置弹窗：换肤/缩略图大小/悬停信息/语言/自动更新，入口是工具栏与欢迎页齿轮 + 原生菜单「设置…」⌘, 广播 `open-settings`）。
 - `hooks/useZoom.ts` — 大图滚轮缩放（以光标为锚）、双击、拖拽平移；`zoomTo` 支持查看器 1:1 绝对缩放（可 <1）。
 
 ## 改动时的连带约束

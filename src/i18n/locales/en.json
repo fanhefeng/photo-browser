@@ -99,9 +99,39 @@
     "trashFailed": "Failed to move to Trash",
     "loadFailed": "Cannot display this image"
   },
+  "settings": {
+    "title": "Settings",
+    "close": "Close",
+    "appearance": "Appearance",
+    "theme": {
+      "light": "Classic Light",
+      "cream": "Cream Sticker",
+      "dark": "Graphite Dark"
+    },
+    "display": "Display",
+    "thumbSize": "Thumbnail size",
+    "hoverInfo": "Show info on hover",
+    "hoverInfoHint": "Show filename and date when hovering a thumbnail",
+    "general": "General",
+    "language": "Language",
+    "langSystem": "Follow system",
+    "autoUpdate": "Check for updates at launch",
+    "autoUpdateHint": "Release builds only; you can always use “Check for Updates…” in the menu"
+  },
   "banner": {
     "ffmpegMissing": "ffmpeg / ffprobe not found. Videos cannot generate posters or metadata. Install via Homebrew: brew install ffmpeg",
     "close": "Dismiss"
+  },
+  "update": {
+    "checking": "Checking for updates…",
+    "available": "Version {{version}} is available. The app will relaunch after updating.",
+    "install": "Update Now",
+    "downloading": "Downloading update…",
+    "downloadingPct": "Downloading update… {{pct}}%",
+    "installing": "Installing, relaunching shortly…",
+    "upToDate": "You're up to date",
+    "checkFailed": "Update check failed: {{msg}}",
+    "installFailed": "Update failed: {{msg}}"
   },
   "error": {
     "loadFailed": "Failed to load photos: {{msg}}",

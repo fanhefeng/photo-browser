@@ -1,0 +1,163 @@
+/* ——————————————————————————————————————————————————————————————
+   主题（皮肤）定义：全部主题 token 集中在此，组件样式只消费变量。
+   新增主题三步：
+     1. 复制下面任意一个 [data-theme="…"] 块，改名并调整 token；
+     2. settings.ts 的 THEMES 注册一行 id；
+     3. i18n 两个 locale 加 settings.theme.<id> 名称。
+   注意：cream/dark 块必须写在 light 块之后——html 同时命中 `:root` 与
+   `[data-theme]`（特异性相同），靠书写顺序保证主题块覆盖默认值。
+   查看器窗口（html.viewer-window，App.css）不参与换肤，固定深色玻璃。
+   —————————————————————————————————————————————————————————————— */
+
+/* —— 经典浅色（默认）：Apple Photos 式纯白 + 系统蓝 —— */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* 表面层次（纯白实底；面板靠边框+阴影分层） */
+  --surface: #ffffff; /* 面板实底（侧栏 + 内容） */
+  --bg: #ffffff; /* 窗口底 */
+  --bg-elev: var(--surface); /* 控件背景 */
+  --bg-elev2: var(--surface); /* 输入/下拉背景 */
+  --bg-hover: rgba(0, 0, 0, 0.05); /* 控件 hover 加深 */
+
+  /* 边框（发丝级细线） */
+  --border: rgba(0, 0, 0, 0.1);
+  --border-hover: rgba(0, 0, 0, 0.18);
+  --hairline: rgba(0, 0, 0, 0.07);
+
+  /* 文本（Apple 近黑 + 灰阶，均达 WCAG AA） */
+  --text: #1d1d1f;
+  --text-dim: rgba(0, 0, 0, 0.56);
+  --text-faint: rgba(0, 0, 0, 0.42);
+  --on-accent: #fff;
+
+  /* 品牌色：Apple 系统蓝（--accent-rgb 供 rgba() 复用） */
+  --accent-rgb: 0, 122, 255;
+  --accent: rgb(var(--accent-rgb));
+  --accent-hover: #0071e3;
+  --accent-soft: rgba(var(--accent-rgb), 0.14); /* 侧栏选中底 */
+  --ring: 0 0 0 3px rgba(var(--accent-rgb), 0.3); /* 键盘 focus 环 */
+
+  /* 语义状态色 */
+  --warn: #8a6d00;
+  --warn-bg: rgba(255, 196, 0, 0.16);
+  --warn-border: rgba(255, 196, 0, 0.42);
+  --danger: #b3261e;
+  --danger-bg: rgba(255, 59, 48, 0.1);
+  --danger-border: rgba(255, 59, 48, 0.28);
+
+  --scrollbar: rgba(0, 0, 0, 0.22);
+  --scrollbar-hover: rgba(0, 0, 0, 0.34);
+  --placeholder: #ececef; /* 缩略图加载前的占位灰 */
+  --glass: rgba(255, 255, 255, 0.82); /* 浮层控件底（缩放条/翻页钮） */
+  --glass-hover: #ffffff;
+  --track: rgba(0, 0, 0, 0.08); /* 进度条/滑杆轨道底 */
+
+  /* 圆角 */
+  --radius: 12px; /* 面板/卡片圆角 */
+  --radius-sm: 8px; /* 控件圆角 */
+
+  /* 阴影 */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.06), 0 6px 16px rgba(0, 0, 0, 0.06);
+  --shadow-panel: 0 0 0 0.5px rgba(0, 0, 0, 0.05), 0 12px 40px rgba(0, 0, 0, 0.1);
+}
+
+/* —— 奶油贴纸：取自 app icon（icon-source.svg）的奶油底 + 相纸奶白 +
+   巧克力描边 + 山峦蓝，边框加重出贴纸描边感，圆角更大、阴影偏暖 —— */
+[data-theme="cream"] {
+  color-scheme: light;
+
+  --surface: #fff8eb; /* 相纸奶白（icon 前景相纸） */
+  --bg: #f3ead7; /* 奶油底（icon 背景渐变中值） */
+  --bg-elev: var(--surface);
+  --bg-elev2: var(--surface);
+  --bg-hover: rgba(46, 38, 32, 0.06);
+
+  /* 贴纸描边：巧克力色（icon 的 #2E2620 描边），比默认主题更显形 */
+  --border: rgba(46, 38, 32, 0.3);
+  --border-hover: rgba(46, 38, 32, 0.5);
+  --hairline: rgba(46, 38, 32, 0.16);
+
+  --text: #2e2620;
+  --text-dim: rgba(46, 38, 32, 0.62);
+  --text-faint: rgba(46, 38, 32, 0.46);
+  --on-accent: #fff8eb;
+
+  /* 山峦蓝（icon 的 #4E8AC9 按奶油底加深到 AA 对比度） */
+  --accent-rgb: 58, 110, 168;
+  --accent: rgb(var(--accent-rgb));
+  --accent-hover: #33619b;
+  --accent-soft: rgba(var(--accent-rgb), 0.14);
+  --ring: 0 0 0 3px rgba(var(--accent-rgb), 0.3);
+
+  /* 太阳黄（icon 的 #FFD666）作警示底色 */
+  --warn: #7a5b00;
+  --warn-bg: rgba(255, 214, 102, 0.28);
+  --warn-border: rgba(214, 158, 20, 0.5);
+  --danger: #a4392f;
+  --danger-bg: rgba(217, 90, 74, 0.12);
+  --danger-border: rgba(217, 90, 74, 0.32);
+
+  --scrollbar: rgba(46, 38, 32, 0.28);
+  --scrollbar-hover: rgba(46, 38, 32, 0.42);
+  --placeholder: #efe4cb;
+  --glass: rgba(255, 248, 235, 0.86);
+  --glass-hover: #fff8eb;
+  --track: rgba(46, 38, 32, 0.12);
+
+  /* 贴纸圆角更大 */
+  --radius: 14px;
+  --radius-sm: 10px;
+
+  /* 暖调阴影（icon 投影的 #4A3C22 色相） */
+  --shadow-card: 0 1px 0 rgba(46, 38, 32, 0.08), 0 5px 14px rgba(74, 60, 34, 0.12);
+  --shadow-panel: 0 0 0 1px rgba(46, 38, 32, 0.05), 0 10px 32px rgba(74, 60, 34, 0.14);
+}
+
+/* —— 石墨深色：与查看器窗口同族的深色，但作为主窗口皮肤 —— */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --surface: #1f1f21;
+  --bg: #161618;
+  --bg-elev: var(--surface);
+  --bg-elev2: var(--surface);
+  --bg-hover: rgba(255, 255, 255, 0.08);
+
+  --border: rgba(255, 255, 255, 0.14);
+  --border-hover: rgba(255, 255, 255, 0.26);
+  --hairline: rgba(255, 255, 255, 0.1);
+
+  --text: #f5f5f7;
+  --text-dim: rgba(255, 255, 255, 0.6);
+  --text-faint: rgba(255, 255, 255, 0.44);
+  --on-accent: #fff;
+
+  /* 深底上提亮一档的系统蓝 */
+  --accent-rgb: 64, 156, 255;
+  --accent: rgb(var(--accent-rgb));
+  --accent-hover: #2f8cf0;
+  --accent-soft: rgba(var(--accent-rgb), 0.22);
+  --ring: 0 0 0 3px rgba(var(--accent-rgb), 0.4);
+
+  --warn: #ffd60a;
+  --warn-bg: rgba(255, 214, 10, 0.12);
+  --warn-border: rgba(255, 214, 10, 0.3);
+  --danger: #ff6961;
+  --danger-bg: rgba(255, 69, 58, 0.14);
+  --danger-border: rgba(255, 69, 58, 0.34);
+
+  --scrollbar: rgba(255, 255, 255, 0.25);
+  --scrollbar-hover: rgba(255, 255, 255, 0.38);
+  --placeholder: #2a2a2c;
+  --glass: rgba(44, 44, 46, 0.85);
+  --glass-hover: #3a3a3c;
+  --track: rgba(255, 255, 255, 0.12);
+
+  --radius: 12px;
+  --radius-sm: 8px;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 16px rgba(0, 0, 0, 0.35);
+  --shadow-panel: 0 0 0 0.5px rgba(255, 255, 255, 0.06), 0 12px 40px rgba(0, 0, 0, 0.5);
+}

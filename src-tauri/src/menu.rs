@@ -15,6 +15,8 @@ fn menu_label(key: &str, locale: &str) -> &'static str {
         "open_logs" => if en { "Open Logs Folder" } else { "打开日志目录" },
         "open_devtools" => if en { "Open DevTools" } else { "打开调试控制台" },
         "language" => if en { "Language" } else { "语言" },
+        "check_update" => if en { "Check for Updates…" } else { "检查更新…" },
+        "settings" => if en { "Settings…" } else { "设置…" },
         _ => "",
     }
 }
@@ -23,6 +25,17 @@ fn menu_label(key: &str, locale: &str) -> &'static str {
 pub fn build_menu<R: tauri::Runtime>(app: &AppHandle<R>, locale: &str) -> tauri::Result<Menu<R>> {
     let menu = Menu::default(app)?;
     let l = |k: &str| menu_label(k, locale);
+
+    // 「检查更新…」「设置…」按 macOS 惯例放应用菜单 About 之下（默认菜单首个子菜单即应用菜单）
+    let check_update =
+        MenuItem::with_id(app, "check_update", l("check_update"), true, None::<&str>)?;
+    let settings =
+        MenuItem::with_id(app, "open_settings", l("settings"), true, Some("CmdOrCtrl+,"))?;
+    if let Some(tauri::menu::MenuItemKind::Submenu(app_menu)) = menu.items()?.into_iter().next() {
+        app_menu.insert(&check_update, 1)?;
+        app_menu.insert(&settings, 2)?;
+    }
+
     let open_data = MenuItem::with_id(app, "open_data", l("open_data"), true, None::<&str>)?;
     let open_cache = MenuItem::with_id(app, "open_cache", l("open_cache"), true, None::<&str>)?;
     let open_logs = MenuItem::with_id(app, "open_logs", l("open_logs"), true, None::<&str>)?;
@@ -56,6 +69,16 @@ pub fn handle_menu_event(app: &AppHandle, event: &tauri::menu::MenuEvent) {
     }
     // 语言切换：重建菜单（更新勾选）+ 通知前端切换语言
     let id = event.id().as_ref();
+    // 检查更新：广播给前端（主窗口的 UpdateBanner 监听并驱动检查/下载/重启）
+    if id == "check_update" {
+        let _ = app.emit("check-update-requested", ());
+        return;
+    }
+    // 设置：广播给前端（主窗口 App 监听并打开设置弹窗）
+    if id == "open_settings" {
+        let _ = app.emit("open-settings", ());
+        return;
+    }
     if id == "lang_zh" || id == "lang_en" {
         let lang = if id == "lang_en" { "en" } else { "zh" };
         *app.state::<AppState>()

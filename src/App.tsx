@@ -21,7 +21,9 @@ import Toolbar from "./components/Toolbar";
 import Sidebar from "./components/Sidebar";
 import PhotoGrid from "./components/PhotoGrid";
 import Lightbox from "./components/Lightbox";
-import { CloseIcon, FolderIcon, GalleryGlyph } from "./components/icons";
+import UpdateBanner from "./components/UpdateBanner";
+import SettingsDialog from "./components/SettingsDialog";
+import { CloseIcon, FolderIcon, GalleryGlyph, GearIcon } from "./components/icons";
 
 export default function App() {
   const { t } = useTranslation();
@@ -35,6 +37,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [videoOk, setVideoOk] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // 扫描完成后 +1，触发重新查询（避免事件监听里捕获到过期的 refresh）
   const [reloadKey, setReloadKey] = useState(0);
   // 侧边栏宽度（可拖拽调整，记忆到 localStorage）
@@ -62,8 +65,11 @@ export default function App() {
     const un = listen<string>("locale-changed", (e) => {
       void i18n.changeLanguage(e.payload);
     });
+    // 原生菜单「设置…」(⌘,) 打开设置弹窗
+    const unSettings = listen("open-settings", () => setSettingsOpen(true));
     return () => {
       void un.then((f) => f());
+      void unSettings.then((f) => f());
     };
   }, []);
 
@@ -204,19 +210,34 @@ export default function App() {
           onOpen={handleOpen}
           onRescan={() => rootPath && startScan(rootPath)}
           onCancel={() => cancelScan().catch(() => {})}
+          onSettings={() => setSettingsOpen(true)}
           scanning={scanning}
           // 首次导入时主区域已有唯一的进度显示（Importing），工具栏不再重复；
           // 增量重扫（网格有内容、主区域不显示导入页）仍走工具栏进度
           progress={photos.length === 0 ? null : progress}
         />
       ) : (
-        // 空状态：不显示工具栏，只留一条透明拖动条容纳红绿灯
+        // 空状态：不显示工具栏，拖动条容纳红绿灯 + 右侧设置入口
         <div
           className="dragbar"
-          onMouseDown={(e) => dragWindow(e.nativeEvent.offsetX, e.buttons)}
-        />
+          onMouseDown={(e) => {
+            // 仅空白区拖动窗口，别把齿轮按钮的点击吃掉
+            if (e.target === e.currentTarget) {
+              dragWindow(e.nativeEvent.offsetX, e.buttons);
+            }
+          }}
+        >
+          <button
+            className="btn btn--icon"
+            onClick={() => setSettingsOpen(true)}
+            title={t("settings.title")}
+          >
+            <GearIcon />
+          </button>
+        </div>
       )}
 
+      <UpdateBanner />
       {!videoOk && (
         <Banner
           tone="warn"
@@ -259,6 +280,8 @@ export default function App() {
           onNavigate={setLightboxIndex}
         />
       )}
+
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }

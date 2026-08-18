@@ -5,6 +5,7 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   FolderIcon,
+  GearIcon,
   RescanIcon,
   SearchIcon,
 } from "./icons";
@@ -16,6 +17,7 @@ interface Props {
   onOpen: () => void;
   onRescan: () => void;
   onCancel: () => void;
+  onSettings: () => void;
   scanning: boolean;
   progress: { done: number; total: number } | null;
 }
@@ -36,6 +38,7 @@ export default function Toolbar({
   onOpen,
   onRescan,
   onCancel,
+  onSettings,
   scanning,
   progress,
 }: Props) {
@@ -130,6 +133,14 @@ export default function Toolbar({
               {filter.sort_dir === "desc" ? <ArrowDownIcon /> : <ArrowUpIcon />}
             </button>
           </div>
+          <span className="toolbar__sep" />
+          <button
+            className="btn btn--icon"
+            onClick={onSettings}
+            title={t("settings.title")}
+          >
+            <GearIcon />
+          </button>
         </div>
       )}
     </header>
