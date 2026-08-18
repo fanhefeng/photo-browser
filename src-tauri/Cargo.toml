@@ -1,6 +1,6 @@
 [package]
 name = "photo-browser"
-version = "0.4.2"
+version = "0.4.3"
 description = "本地优先的 macOS 照片/视频浏览器（Tauri 2 + React）"
 authors = ["fhf"]
 license = "MIT"
