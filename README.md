@@ -15,9 +15,22 @@
 - **增量扫描**：再次打开同一目录只处理新增/改动的文件；扫描可取消，拒绝并发
 - **系统"打开方式"查看器**：可在访达中用本应用打开图片/视频，弹出独立的简洁查看器窗口——同目录文件左右切换（按钮或 ←/→）、滚轮缩放、1:1 实际像素、`i` 信息面板、`⌫` 移入废纸篓、Esc 关闭。设为默认：文件「显示简介 → 打开方式」选择本应用并点「全部更改」
 
+## 安装（macOS）
+
+1. 在 [Releases](https://github.com/fanhefeng/photo-browser/releases/latest) 下载 `.dmg`，打开后把「照片浏览器」拖入「应用程序」。
+2. 本应用**未经 Apple 签名公证**，首次打开会被 Gatekeeper 拦截，提示**「已损坏，无法打开」**——这是 Gatekeeper 对未签名 App 的报错，**App 本身并没有损坏**。此时「仍要打开」常常不出现、右键 →「打开」也无效（macOS 15 起 Apple 已移除该旁路），唯一可靠的解法是在终端清除下载隔离属性（不受 macOS 版本影响）：
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/photo-browser.app
+   ```
+
+   无需重新下载，也不要把 App 丢进废纸篓——执行上面这条命令后直接打开即可。
+
+系统要求：Apple Silicon（M 系列）Mac，macOS 11 Big Sur 及以上。
+
 ## 依赖
 
-- **视频功能依赖 `ffmpeg` / `ffprobe`**（封面抽帧 + 元数据）。未安装时照片功能不受影响，应用会顶部提示；安装：`brew install ffmpeg`
+- **视频功能依赖 `ffmpeg` / `ffprobe`**（封面抽帧 + 元数据）。Release 版 dmg 已内置，无需安装；从源码运行（`pnpm tauri dev`）时需自行安装：`brew install ffmpeg`。未安装时照片功能不受影响，应用会顶部提示
 - HEIC/HEIF/AVIF 依赖 macOS 自带 `sips`
 
 ## 架构

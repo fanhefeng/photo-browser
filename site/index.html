@@ -566,7 +566,7 @@
       <div class="step reveal">
         <span class="num">2</span>
         <h3>首次打开</h3>
-        <p>应用未经 Apple 公证，若提示「已损坏」：双击 dmg 里的 <code>修复「已损坏」.command</code> 即可修复；也可在终端执行 <code>xattr -cr /Applications/photo-browser.app</code>。</p>
+        <p>应用未经 Apple 签名公证，首次打开会提示「已损坏，无法打开」——App 并没有损坏，「仍要打开」和右键打开也无效。在终端执行 <code>xattr -dr com.apple.quarantine /Applications/photo-browser.app</code> 后即可正常打开。</p>
       </div>
       <div class="step reveal">
         <span class="num">3</span>

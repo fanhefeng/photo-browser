@@ -115,9 +115,13 @@ jobs:
             ## 安装（macOS）
 
             1. 下载下方的 `.dmg`，打开后将「照片浏览器」拖入「应用程序」。
-            2. 本应用**未经 Apple 公证签名**，首次打开若提示**「已损坏，无法打开」**：双击 dmg 窗口里的 `修复「已损坏」.command` 脚本即可修复（它只做一件事：`xattr -cr /Applications/photo-browser.app` 清除下载隔离属性）。
-            3. 如果脚本本身也被拦截（提示"身份不明的开发者"），在弹窗后打开「系统设置 → 隐私与安全性」，点底部的「仍要打开」；或直接在「终端」里粘贴执行上面那条 `xattr` 命令。
-            4. 视频封面与元数据所需的 `ffmpeg`/`ffprobe` 已内置在 App 内，无需另行安装。
+            2. 本应用**未经 Apple 签名公证**，首次打开会被 Gatekeeper 拦截，提示**「已损坏，无法打开」——App 本身并没有损坏**。此时「仍要打开」常常不出现、右键 →「打开」也无效（macOS 15 起 Apple 已移除该旁路），唯一可靠的解法是在「终端」执行下面一条命令清除下载隔离属性（无需重新下载，也不要把 App 丢进废纸篓）：
+
+               ```
+               xattr -dr com.apple.quarantine /Applications/photo-browser.app
+               ```
+
+            3. 视频封面与元数据所需的 `ffmpeg`/`ffprobe` 已内置在 App 内，无需另行安装。
 
             系统要求：Apple Silicon（M 系列）Mac，macOS 11 Big Sur 及以上。
           releaseDraft: false
@@ -125,31 +129,15 @@ jobs:
           # 仅 Apple Silicon（M 系列）；ffmpeg/ffprobe 作为 sidecar 内置
           args: --target aarch64-apple-darwin
 
-      # 应用未做 Apple 签名公证，下载后会被 Gatekeeper 报「已损坏」。
-      # 把修复脚本注入 dmg 根目录（与拖装图标并排），再覆盖上传到 Release。
-      # 流程：UDZO 转 UDRW 可写镜像 → 扩容留出余量 → 挂载 → 拷入脚本 → 压回 UDZO。
-      - name: Inject fix-damaged script into dmg
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          DMG=$(ls src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg)
-          SCRIPT='src-tauri/dmg/修复「已损坏」.command'
-          RW=/tmp/repack-rw.dmg
-          MNT=/tmp/dmg-mount
-
-          hdiutil convert "$DMG" -format UDRW -o "$RW"
-          SIZE=$(stat -f%z "$RW")
-          hdiutil resize -size $((SIZE + 16 * 1024 * 1024)) "$RW"
-          mkdir -p "$MNT"
-          hdiutil attach "$RW" -nobrowse -mountpoint "$MNT"
-          cp "$SCRIPT" "$MNT/"
-          chmod +x "$MNT/$(basename "$SCRIPT")"
-          hdiutil detach "$MNT"
-
-          rm "$DMG"
-          hdiutil convert "$RW" -format UDZO -imagekey zlib-level=9 -o "$DMG"
-          gh release upload "v${VERSION}" "$DMG" --clobber
+      # 注（v0.4.2 之后移除）：这里曾把「修复「已损坏」.command」脚本后处理注入 dmg
+      # 根目录（UDZO 转 UDRW → 扩容 → 挂载 → 拷入 → 压回 → --clobber 重传，仅 v0.4.2
+      # 附带过）。删掉的原因：脚本自身带着与 app 相同的 quarantine 隔离标记，双击会被
+      # Gatekeeper 直接 SIGKILL（终端只显示一句 `zsh: killed`）；而 macOS 15 起 Apple
+      # 移除了「右键 → 打开」旁路，放行脚本只剩「系统设置 → 隐私与安全性」一条路——
+      # 和直接放行 app 本身是完全相同的步骤。它一步也没省，反而让用户以为修复跑过了、
+      # 转头又看到「已损坏」。在完成 Developer ID 签名 + 公证之前，
+      # `xattr -dr com.apple.quarantine` 是唯一文档化的解法（见 README 与官网安装说明），
+      # 不要把这个脚本加回来。
 
   # app 构建成功后才更新官网——复用 deploy-pages.yml 那套部署逻辑，不重复实现。
   # release 被跳过（版本号没变）时这个 job 也跟着跳过，官网不会被无谓地重新部署。

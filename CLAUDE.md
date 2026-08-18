@@ -44,7 +44,7 @@ push 到 main 后 CI 全自动串起来：
 
 ```
 package.json 的 version 变化
-  → Release：打 tag vX.Y.Z → 构建 dmg（内置 ffmpeg sidecar + 修复脚本）→ 发布 Release
+  → Release：打 tag vX.Y.Z → 构建 dmg（内置 ffmpeg sidecar）→ 发布 Release
     → 构建成功 → Deploy site：部署官网，版本号取自最新 Release
 ```
 
