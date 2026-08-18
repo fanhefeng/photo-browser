@@ -102,6 +102,7 @@ export default function Toolbar({
             <input
               className="search__input"
               type="search"
+              aria-label={t("toolbar.searchPlaceholder")}
               placeholder={t("toolbar.searchPlaceholder")}
               value={filter.text ?? ""}
               onChange={(e) => onChange({ text: e.target.value })}

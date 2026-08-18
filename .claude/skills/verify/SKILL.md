@@ -9,10 +9,12 @@ description: 本仓库的端到端验证方法——构建、启动、驱动 Tau
 
 ```bash
 # 本地 sidecar（一次性）：CI 才下载静态 ffmpeg，本地用 homebrew 软链
+mkdir -p src-tauri/binaries
 ln -sf /opt/homebrew/bin/ffmpeg  src-tauri/binaries/ffmpeg-aarch64-apple-darwin
 ln -sf /opt/homebrew/bin/ffprobe src-tauri/binaries/ffprobe-aarch64-apple-darwin
 
-pnpm dev                      # 后台起 vite dev server (1420)，等 curl localhost:1420 返回 200
+pnpm dev &                    # 后台起 vite dev server (1420)
+until curl -fsS localhost:1420 >/dev/null; do sleep 1; done   # 等就绪再启动 app
                               # （工具链是 Vite+：pnpm dev = vp dev、pnpm build = vp check && vp build）
 cd src-tauri && cargo build   # debug 二进制
 ./src-tauri/target/debug/photo-browser                 # 主窗口

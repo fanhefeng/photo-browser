@@ -65,14 +65,19 @@ const edits = [
   },
 ]
 
-for (const { file, find, to } of edits) {
+// 先全部校验再统一落盘：任何一处匹配失败都不写文件，避免四处版本号改了一半
+const pending = edits.map(({ file, find, to }) => {
   const path = join(root, file)
   const before = readFileSync(path, 'utf8')
   if (!find.test(before)) {
     console.error(`✗ ${file}: 没找到版本号字段，请检查文件格式`)
     process.exit(1)
   }
-  writeFileSync(path, before.replace(find, to))
+  return { file, path, content: before.replace(find, to) }
+})
+
+for (const { file, path, content } of pending) {
+  writeFileSync(path, content)
   console.log(`✓ ${file}`)
 }
 

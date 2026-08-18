@@ -622,13 +622,15 @@ fn parse_exif(path: &Path, photo: &mut MediaItem) {
     // 拍摄时间
     photo.taken_at = get_datetime(&exif);
 
-    // GPS
+    // GPS（越界坐标拒绝而非入库，与 parse_iso6709 同一口径）
     if let (Some(lat), Some(lon)) = (
         get_gps(&exif, Tag::GPSLatitude, Tag::GPSLatitudeRef, &['S']),
         get_gps(&exif, Tag::GPSLongitude, Tag::GPSLongitudeRef, &['W']),
     ) {
-        photo.gps_lat = Some(lat);
-        photo.gps_lon = Some(lon);
+        if lat.abs() <= 90.0 && lon.abs() <= 180.0 {
+            photo.gps_lat = Some(lat);
+            photo.gps_lon = Some(lon);
+        }
     }
 }
 
@@ -705,6 +707,10 @@ fn get_gps(exif: &exif::Exif, coord: Tag, refr: Tag, negative_refs: &[char]) -> 
         Value::Rational(v) if v.len() >= 3 => v,
         _ => return None,
     };
+    // 损坏的 EXIF 可能带分母为 0 的有理数，to_f64 会得到 inf/NaN——拒绝而非入库
+    if dms[..3].iter().any(|r| r.denom == 0) {
+        return None;
+    }
     let deg = dms[0].to_f64() + dms[1].to_f64() / 60.0 + dms[2].to_f64() / 3600.0;
     let sign = exif
         .get_field(refr, In::PRIMARY)

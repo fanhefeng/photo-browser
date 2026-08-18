@@ -83,6 +83,7 @@ export default function Sidebar({ facets, filter, onChange, width }: Props) {
                   <button
                     key={it.key}
                     className={`pill ${on ? "pill--on" : ""}`}
+                    aria-pressed={on}
                     onClick={() => select(g.dim, it.key)}
                     title={label}
                   >

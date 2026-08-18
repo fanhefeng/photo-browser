@@ -90,11 +90,22 @@ jobs:
 
       # 下载零依赖的静态 ffmpeg/ffprobe（arm64），作为 sidecar 打进 App，
       # 终端用户无需自行安装。命名须带 target triple 后缀供 Tauri externalBin 识别。
+      # 版本与 SHA-256 固定死（原来跟 latest 重定向走，换包/被篡改都无从察觉）。
+      # 升级：把 FFMPEG_BUILD 换成新构建号（latest 重定向的落点），两个哈希
+      # 同步换成构建目录下官方 .sha256 文件里的值。
       - name: Fetch static ffmpeg/ffprobe (arm64) for sidecar bundling
+        env:
+          FFMPEG_BUILD: 1785863997_9.0 # ffmpeg 9.0
+          FFMPEG_SHA256: 5267ef149ee0d208057a1b316aac079b661b0476574dee5da7d225769773c603
+          FFPROBE_SHA256: 7778fbb533fb60d3336cbd9a9e51eced71658f020b570c7203590c1c41d42f50
         run: |
+          set -euo pipefail
+          BASE="https://ffmpeg.martin-riedl.de/download/macos/arm64/${FFMPEG_BUILD}"
           mkdir -p src-tauri/binaries
-          curl -fL --retry 3 -o /tmp/ffmpeg.zip "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip"
-          curl -fL --retry 3 -o /tmp/ffprobe.zip "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffprobe.zip"
+          curl -fL --retry 3 -o /tmp/ffmpeg.zip "${BASE}/ffmpeg.zip"
+          curl -fL --retry 3 -o /tmp/ffprobe.zip "${BASE}/ffprobe.zip"
+          echo "${FFMPEG_SHA256}  /tmp/ffmpeg.zip" | shasum -a 256 -c -
+          echo "${FFPROBE_SHA256}  /tmp/ffprobe.zip" | shasum -a 256 -c -
           unzip -oj /tmp/ffmpeg.zip -d src-tauri/binaries
           unzip -oj /tmp/ffprobe.zip -d src-tauri/binaries
           mv src-tauri/binaries/ffmpeg src-tauri/binaries/ffmpeg-aarch64-apple-darwin

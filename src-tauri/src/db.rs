@@ -69,13 +69,27 @@ fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         r#"
         CREATE INDEX IF NOT EXISTS idx_taken   ON photos(taken_at);
-        CREATE INDEX IF NOT EXISTS idx_camera  ON photos(camera_model);
-        CREATE INDEX IF NOT EXISTS idx_ext     ON photos(ext);
-        CREATE INDEX IF NOT EXISTS idx_lens    ON photos(lens);
         CREATE INDEX IF NOT EXISTS idx_kind    ON photos(kind);
+        DROP INDEX IF EXISTS idx_camera;
+        DROP INDEX IF EXISTS idx_ext;
+        DROP INDEX IF EXISTS idx_lens;
         "#,
-    )
-
+    )?;
+    // 分面聚合与分组过滤都走 dim_sql 的表达式（GROUP BY <expr> / <expr> = ?），
+    // 普通列索引帮不上忙——SQLite 只在索引表达式与查询表达式逐字一致时才启用
+    // 表达式索引，所以索引 SQL 直接由 dim_sql 生成，天然不会失同步。
+    // kind 是裸列，用上面的 idx_kind；旧库的 idx_camera（建在从不参与查询的
+    // camera_model 上）/idx_ext/idx_lens 是死索引，上面顺手清掉。
+    for dim in ["year", "camera", "format", "gps"] {
+        conn.execute(
+            &format!(
+                "CREATE INDEX IF NOT EXISTS idx_dim_{dim} ON photos({})",
+                dim_sql(dim).expect("dim_sql 必然覆盖上述维度")
+            ),
+            [],
+        )?;
+    }
+    Ok(())
 }
 
 /// 读取**当前 root 目录下**已有照片的 (id -> (mtime, path))，用于增量扫描时
@@ -632,6 +646,26 @@ mod tests {
         .unwrap();
         assert_eq!(unknown.len(), 1);
         assert_eq!(unknown[0].id, "n");
+    }
+
+    #[test]
+    fn dim_filters_use_expression_indexes() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        for dim in ["year", "camera", "format", "gps"] {
+            let expr = dim_sql(dim).unwrap();
+            let plan: String = conn
+                .query_row(
+                    &format!("EXPLAIN QUERY PLAN SELECT id FROM photos WHERE {expr} = ?"),
+                    ["x"],
+                    |r| r.get(3),
+                )
+                .unwrap();
+            assert!(
+                plan.contains(&format!("idx_dim_{dim}")),
+                "{dim} 维度没走表达式索引，计划：{plan}"
+            );
+        }
     }
 
     #[test]
