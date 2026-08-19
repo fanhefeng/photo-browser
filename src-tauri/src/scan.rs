@@ -127,10 +127,13 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
     // 2. 增量：跳过 mtime 未变、且缩略图仍在的文件（仅看当前 root 目录下的已有记录）
     let existing = db::existing_mtimes(&conn, &root).unwrap_or_default();
     let cached_thumbs = cached_thumb_ids();
+    // id 每个文件只算一次：增量判定（这一步）与"已删除"比对（步骤 5）都要用，
+    // 分头各算一遍等于对整个目录做两轮 blake3。
+    let file_ids: Vec<String> = files.iter().map(|p| media::media_id(p)).collect();
     let to_process: Vec<PathBuf> = files
         .iter()
-        .filter(|p| {
-            let id = media::media_id(p);
+        .zip(&file_ids)
+        .filter(|(p, id)| {
             let cur_mtime = std::fs::metadata(p)
                 .and_then(|m| m.modified())
                 .ok()
@@ -138,11 +141,11 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
                 .map(|d| d.as_secs() as i64);
             needs_processing(
                 cur_mtime,
-                existing.get(&id).map(|(m, _)| *m),
-                cached_thumbs.contains(&id),
+                existing.get(*id).map(|(m, _)| *m),
+                cached_thumbs.contains(*id),
             )
         })
-        .cloned()
+        .map(|(p, _)| p.clone())
         .collect();
 
     let total = to_process.len();
@@ -185,10 +188,10 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
         );
     }
     if !cancelled && unscoped_errors == 0 {
-        let current_ids: HashSet<String> = files.iter().map(|p| media::media_id(p)).collect();
+        let current_ids: HashSet<&str> = file_ids.iter().map(String::as_str).collect();
         let missing: Vec<String> = existing
             .iter()
-            .filter(|(id, _)| !current_ids.contains(*id))
+            .filter(|(id, _)| !current_ids.contains(id.as_str()))
             .filter(|(_, (_, path))| {
                 !error_paths.iter().any(|ep| Path::new(path).starts_with(ep))
             })

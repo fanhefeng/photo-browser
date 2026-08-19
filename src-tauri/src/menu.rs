@@ -75,7 +75,14 @@ pub fn build_menu<R: tauri::Runtime>(app: &AppHandle<R>, locale: &str) -> tauri:
 pub fn handle_menu_event(app: &AppHandle, event: &tauri::menu::MenuEvent) {
     #[cfg(debug_assertions)]
     if event.id().as_ref() == "open_devtools" {
-        if let Some(w) = app.get_webview_window("main") {
+        // 开当前聚焦的那个窗口的调试台。写死 main 的话，查看器窗口（"打开方式"
+        // 进入）永远开不出 devtools——而它恰恰是最难验证的那个窗口。
+        let target = app
+            .webview_windows()
+            .into_values()
+            .find(|w| w.is_focused().unwrap_or(false))
+            .or_else(|| app.get_webview_window("main"));
+        if let Some(w) = target {
             w.open_devtools();
         }
         return;
