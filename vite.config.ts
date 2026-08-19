@@ -43,4 +43,15 @@ export default defineConfig({
   check: {
     fmt: false,
   },
+
+  // —— vp test（vitest 内置于 Vite+，无需单独安装运行器）——
+  // 测的是前端那些"错了不会崩、只会悄悄显示错东西"的有状态逻辑：
+  // 在途请求乱序、大图按 id 重定位、删除后的下标前移、缩放锚点。
+  test: {
+    environment: "jsdom",
+    // 每个用例后清掉 mock 调用记录与已挂载的组件，避免互相串味
+    restoreMocks: true,
+    setupFiles: ["./src/test-setup.ts"],
+    include: ["src/**/*.test.{ts,tsx}"],
+  },
 });

@@ -12,7 +12,7 @@ README.md 含完整的功能/目录布局说明（中文），本文件聚焦需
 pnpm install
 pnpm tauri dev      # 开发运行（debug 构建 = dev 环境，目录后缀 -dev）
 pnpm tauri build    # 打包 .app/.dmg（release 构建 = prod 环境）
-pnpm build          # 仅前端：vp check（oxlint + tsgolint 类型检查）+ vp build
+pnpm build          # 仅前端：vp check（oxlint + tsgolint 类型检查）+ vp test + vp build
 pnpm exec vp check  # 单跑静态检查（lint + 类型检查；格式化暂关，见 vite.config.ts 的 check.fmt）
 ```
 
@@ -27,7 +27,25 @@ cargo test purge_outside_root           # 跑单个测试
 cargo clippy                            # lint
 ```
 
-前端无独立测试框架；`pnpm build` 的 `vp check` 即类型检查关。`RUST_LOG=debug` 可覆盖日志级别。
+`RUST_LOG=debug` 可覆盖日志级别。
+
+```bash
+pnpm test                      # 前端测试（vitest 内置于 Vite+，无需单独装运行器）
+pnpm exec vp test run useZoom  # 跑单个文件
+pnpm exec vp test              # watch 模式
+```
+
+前端测试只盯**"坏了也不报错、只是悄悄显示错东西"**的有状态逻辑——在途请求乱序覆盖、
+大图按 id 重定位、删除后的下标前移、缩放锚点、结果截断提示。渲染类的东西不测。
+组件测试统一 mock `./api` 与 `@tauri-apps/api/*`；`src/test-setup.ts` 负责三件全局的事：
+卸载上一个用例的 DOM（**没有它，querySelector 会取到前一个组件，症状是答非所问**）、
+锁定界面语言为中文（jsdom 的 navigator.language 是 en-US，不锁则断言中文文案的用例会挂）、
+补 jsdom 缺失的 ResizeObserver。
+
+写新测试后请顺手做一次**变异验证**：把被测的那行守卫改坏，确认对应用例真的会红。
+这不是形式主义——`e.repeat` 那条用例最初就是绿的假象，实际拦住重复删除的是
+`trashing` 在途标志，把守卫删掉测试照样过；直到让重复事件发生在上一次删除**完成之后**，
+它才真正测到想测的东西。
 
 ## 发版：改版本号就够了
 
