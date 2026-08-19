@@ -25,6 +25,14 @@ export interface MediaItem {
   orientation: number | null;
 }
 
+/** 查询结果。`truncated` 为 true 时 `items.length` 即后端生效的上限——
+ *  没有这个标志的话，"命中上限"与"恰好这么多张"在前端无法区分，
+ *  超出上限的照片会被静默丢掉而用户毫不知情。 */
+export interface QueryResult {
+  items: MediaItem[];
+  truncated: boolean;
+}
+
 /** 一个分类项：稳定 key（用于过滤 + 前端 i18n 翻译）+ 数量 */
 export interface FacetItem {
   key: string;

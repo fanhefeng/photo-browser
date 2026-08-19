@@ -135,6 +135,7 @@
   "error": {
     "loadFailed": "加载照片失败：{{msg}}",
     "scanFailed": "扫描失败：{{msg}}",
+    "tooManyResults": "符合条件的照片超过 {{n}} 张，当前只显示了前 {{n}} 张。请用搜索或左侧分组缩小范围。",
     "filesUnprocessed": "{{count}} 个文件未能处理（详情见日志目录）",
     "dirsUnreadable": "{{count}} 个项目无法读取已跳过（其中的旧条目未清理）"
   },

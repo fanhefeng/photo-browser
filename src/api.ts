@@ -3,7 +3,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { Facets, Filter, MediaItem } from "./types";
+import type { Facets, Filter, MediaItem, QueryResult } from "./types";
 
 /** 弹出系统目录选择框，返回所选目录（取消返回 null） */
 export async function pickDirectory(): Promise<string | null> {
@@ -39,8 +39,8 @@ export function appInfo(): Promise<AppInfo> {
   return invoke<AppInfo>("app_info");
 }
 
-export function queryPhotos(filter: Filter): Promise<MediaItem[]> {
-  return invoke<MediaItem[]>("query_photos", { filter });
+export function queryPhotos(filter: Filter): Promise<QueryResult> {
+  return invoke<QueryResult>("query_photos", { filter });
 }
 
 export function getFacets(root?: string): Promise<Facets> {

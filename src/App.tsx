@@ -36,6 +36,8 @@ export default function App() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // 查询命中结果上限（独立于 notice：扫描完成的提示不该把它顶掉，反之亦然）
+  const [truncated, setTruncated] = useState(false);
   const [videoOk, setVideoOk] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // 扫描完成后 +1，触发重新查询（避免事件监听里捕获到过期的 refresh）
@@ -133,10 +135,13 @@ export default function App() {
         setLightboxIndex((prev) => {
           if (prev === null) return prev;
           const curId = photosRef.current[prev]?.id;
-          const ni = list.findIndex((p) => p.id === curId);
+          const ni = list.items.findIndex((p) => p.id === curId);
           return ni >= 0 ? ni : null;
         });
-        setPhotos(list);
+        setPhotos(list.items);
+        // 结果被上限截断：必须显式告诉用户还有照片没显示出来，
+        // 否则"少了几万张"和"就这么多"在界面上长得一模一样
+        setTruncated(list.truncated);
         setFacets(fc);
         setError(null);
       } catch (e) {
@@ -255,6 +260,13 @@ export default function App() {
       )}
       {error && <Banner tone="error" text={error} onDismiss={() => setError(null)} />}
       {notice && <Banner tone="warn" text={notice} onDismiss={() => setNotice(null)} />}
+      {truncated && (
+        <Banner
+          tone="warn"
+          text={t("error.tooManyResults", { n: photos.length })}
+          onDismiss={() => setTruncated(false)}
+        />
+      )}
 
       {rootPath ? (
         <div className="body">

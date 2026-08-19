@@ -136,6 +136,7 @@
   "error": {
     "loadFailed": "Failed to load photos: {{msg}}",
     "scanFailed": "Scan failed: {{msg}}",
+    "tooManyResults": "More than {{n}} photos match — only the first {{n}} are shown. Narrow it down with search or the sidebar groups.",
     "filesUnprocessed": "{{count}} file(s) could not be processed (see the logs folder)",
     "dirsUnreadable": "{{count}} item(s) could not be read and were skipped (their stale entries were not cleaned up)"
   },

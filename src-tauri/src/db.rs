@@ -289,7 +289,18 @@ fn sort_column(s: &Option<String>) -> &'static str {
     }
 }
 
-pub fn query(conn: &Connection, f: &Filter) -> rusqlite::Result<Vec<MediaItem>> {
+/// 查询结果。`truncated` 让前端能告诉用户"还有照片没显示出来"——
+/// 只返回 Vec 的话，命中上限与恰好这么多张在前端看起来一模一样，
+/// 用户会以为自己看到了全部（十万张以上的库曾因此静默丢照片）。
+#[derive(Serialize)]
+pub struct QueryResult {
+    pub items: Vec<MediaItem>,
+    /// 结果被上限截断：符合条件的照片比返回的更多。
+    /// 为 true 时 `items.len()` 即当前生效的上限，前端据此组织提示文案。
+    pub truncated: bool,
+}
+
+pub fn query(conn: &Connection, f: &Filter) -> rusqlite::Result<QueryResult> {
     let (where_sql, args) = build_where(f);
     let col = sort_column(&f.sort_by);
     let dir = if f.sort_dir.as_deref() == Some("asc") {
@@ -300,6 +311,9 @@ pub fn query(conn: &Connection, f: &Filter) -> rusqlite::Result<Vec<MediaItem>> 
     // 范围保护：避免负值 limit 在 SQLite 中表示“无限制”而意外拉全表
     let limit = f.limit.unwrap_or(100_000).clamp(0, 1_000_000);
     let offset = f.offset.unwrap_or(0).max(0);
+    // 多取一条来探测"还有更多"：比为此单跑一次 COUNT(*) 便宜得多
+    // （计数要扫完整个结果集，探测只多读一行）。返回前丢弃。
+    let probe = limit.saturating_add(1);
 
     // 排序列为空值时排到最后
     let sql = format!(
@@ -308,12 +322,19 @@ pub fn query(conn: &Connection, f: &Filter) -> rusqlite::Result<Vec<MediaItem>> 
                 gps_lat, gps_lon, orientation
          FROM photos WHERE {where_sql}
          ORDER BY ({col} IS NULL), {col} {dir}
-         LIMIT {limit} OFFSET {offset}"
+         LIMIT {probe} OFFSET {offset}"
     );
 
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_from_iter(args.iter().map(|b| b.as_ref())), row_to_item)?;
-    rows.collect()
+    let mut items: Vec<MediaItem> = rows.collect::<rusqlite::Result<_>>()?;
+    let truncated = items.len() as i64 > limit;
+    items.truncate(limit.max(0) as usize);
+    if truncated {
+        // 用户会看到横幅，日志里也要留痕：排查"照片怎么少了"时这是第一现场
+        tracing::warn!(limit, "查询命中结果上限，部分照片未返回");
+    }
+    Ok(QueryResult { items, truncated })
 }
 
 fn row_to_item(r: &rusqlite::Row) -> rusqlite::Result<MediaItem> {
@@ -518,8 +539,8 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].id, "lower");
+        assert_eq!(found.items.len(), 1);
+        assert_eq!(found.items[0].id, "lower");
 
         // purge 只保留当前 root（大小写不同的目录会被清出，属预期的“单目录”语义）
         let purged = purge_outside_root(&mut conn, "/lib/photos").unwrap();
@@ -549,7 +570,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         init_schema(&conn).unwrap();
         let res = query(&conn, &Filter::default()).unwrap();
-        assert!(res.is_empty());
+        assert!(res.items.is_empty());
     }
 
     #[test]
@@ -585,7 +606,7 @@ mod tests {
         upsert_media(&mut conn, &[photo.clone(), video]).unwrap();
 
         // 全量 + 列对齐（22 列写入/读取一致，否则会在这里崩）
-        assert_eq!(query(&conn, &Filter::default()).unwrap().len(), 2);
+        assert_eq!(query(&conn, &Filter::default()).unwrap().items.len(), 2);
 
         // 分组查看：按类型 = 视频
         let only_video = query(
@@ -597,9 +618,9 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(only_video.len(), 1);
-        assert_eq!(only_video[0].id, "b");
-        assert_eq!(only_video[0].duration, Some(12.5));
+        assert_eq!(only_video.items.len(), 1);
+        assert_eq!(only_video.items[0].id, "b");
+        assert_eq!(only_video.items[0].duration, Some(12.5));
 
         // 同 id upsert 更新
         let mut photo2 = photo;
@@ -644,8 +665,8 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(unknown.len(), 1);
-        assert_eq!(unknown[0].id, "n");
+        assert_eq!(unknown.items.len(), 1);
+        assert_eq!(unknown.items[0].id, "n");
     }
 
     #[test]
@@ -669,6 +690,84 @@ mod tests {
     }
 
     #[test]
+    fn query_flags_truncation_at_limit() {
+        // 回归：命中上限必须能被前端看见。只返回 Vec 的话，"恰好这么多张"
+        // 与"还有更多没返回"在前端完全无法区分，用户会以为看到了全部。
+        let mut conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        let items: Vec<MediaItem> = (0..5)
+            .map(|i| item(&format!("id{i}"), &format!("/lib/{i}.jpg"), "photo", "jpg"))
+            .collect();
+        upsert_media(&mut conn, &items).unwrap();
+
+        // 上限小于总数 → 截断，且只返回上限条（探测用的那条已丢弃）
+        let hit = query(
+            &conn,
+            &Filter {
+                limit: Some(3),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(hit.items.len(), 3);
+        assert!(hit.truncated);
+
+        // 上限恰好等于总数 → 不算截断（边界：多取的那条查不到）
+        let exact = query(
+            &conn,
+            &Filter {
+                limit: Some(5),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(exact.items.len(), 5);
+        assert!(!exact.truncated);
+
+        // 上限大于总数 → 不截断
+        let room = query(
+            &conn,
+            &Filter {
+                limit: Some(10),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(room.items.len(), 5);
+        assert!(!room.truncated);
+    }
+
+    #[test]
+    fn query_result_wire_format_matches_frontend() {
+        // QueryResult 走 IPC 到前端，types.ts 的 interface 只是编译期声明、
+        // 运行时不校验字段名——改错一个名字前端会静默读到 undefined
+        // （truncated 恒为假值 = 提示永不出现，正是这次要修掉的那种静默）。
+        // 这里钉死实际序列化出来的形状。
+        let mut conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        upsert_media(&mut conn, &[item("a", "/lib/a.jpg", "photo", "jpg")]).unwrap();
+
+        let res = query(
+            &conn,
+            &Filter {
+                limit: Some(0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let json: serde_json::Value = serde_json::to_value(&res).unwrap();
+
+        assert!(json.get("items").unwrap().is_array(), "前端读 list.items");
+        assert_eq!(
+            json.get("truncated").unwrap(),
+            &serde_json::Value::Bool(true),
+            "前端读 list.truncated"
+        );
+        // 上限 0 + 库里有 1 张 → 截断为空列表且标记 truncated
+        assert_eq!(json["items"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
     fn purge_outside_root_keeps_only_current() {
         let mut conn = Connection::open_in_memory().unwrap();
         init_schema(&conn).unwrap();
@@ -683,7 +782,7 @@ mod tests {
         let purged = purge_outside_root(&mut conn, "/lib/A").unwrap();
         assert_eq!(purged, vec!["b".to_string()]);
         let all = query(&conn, &Filter::default()).unwrap();
-        assert_eq!(all.len(), 1);
-        assert_eq!(all[0].id, "a");
+        assert_eq!(all.items.len(), 1);
+        assert_eq!(all.items[0].id, "a");
     }
 }

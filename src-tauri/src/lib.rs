@@ -18,8 +18,7 @@ use tauri::{
     WebviewWindowBuilder,
 };
 
-use db::{Facets, Filter};
-use media::MediaItem;
+use db::{Facets, Filter, QueryResult};
 use scan::has_media_ext;
 
 /// 全局状态。
@@ -216,11 +215,12 @@ fn app_info() -> AppInfo {
 /// 按筛选条件查询媒体列表。
 /// async + spawn_blocking：同步命令会在主线程内联执行，大索引上的
 /// SQLite 查询（或被扫描写入短暂顶锁）会卡顿 UI；连接 clone Arc 进闭包。
+/// 返回 QueryResult 而非裸 Vec：命中结果上限时前端要能提示用户还有照片没显示。
 #[tauri::command]
 async fn query_photos(
     state: State<'_, AppState>,
     filter: Filter,
-) -> Result<Vec<MediaItem>, String> {
+) -> Result<QueryResult, String> {
     let db = state.db.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let conn = lock_db(&db);
