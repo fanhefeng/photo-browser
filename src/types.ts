@@ -45,9 +45,10 @@ export interface Facets {
 export interface Filter {
   root?: string;
   text?: string;
-  /** 当前“分组查看”所选维度（kind/year/camera/focal/iso/format/gps）；全局单选 */
+  /** 当前“分组查看”所选维度（kind/year/camera/format/gps）；全局单选。
+   *  维度集合的唯一出处是 db.rs 的 dim_sql，改这里要同步改那边。 */
   group_dim?: string;
-  /** 该维度下所选分类 key（如 "2024" / "wide" / "unknown"） */
+  /** 该维度下所选分类 key（如 "2024" / "heic" / "unknown"） */
   group_key?: string;
   sort_by: SortBy;
   sort_dir: "asc" | "desc";

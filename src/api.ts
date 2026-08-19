@@ -66,6 +66,12 @@ export function revealInFinder(path: string): Promise<void> {
   return invoke("reveal_in_finder", { path });
 }
 
+/** 在系统默认浏览器打开外部链接。WebView 里 target="_blank" 不会有任何反应
+ *  （Tauri 未注册新窗口处理器），外链一律走这里。 */
+export function openExternal(url: string): Promise<void> {
+  return invoke("open_external", { url });
+}
+
 /** 通知后端当前语言（zh/en），用于重建原生菜单的文案 */
 export function setLocale(lang: string): Promise<void> {
   return invoke("set_locale", { lang });

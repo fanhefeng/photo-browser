@@ -147,6 +147,7 @@
   "backend": {
     "scanInProgress": "A scan is already in progress, please wait",
     "notDirectory": "The selected path is not a valid directory",
-    "readFailed": "Failed to read the file"
+    "readFailed": "Failed to read the file",
+    "badUrl": "This link cannot be opened"
   }
 }

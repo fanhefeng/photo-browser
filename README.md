@@ -61,6 +61,7 @@ Rust 后端 (src-tauri)
 
 - **环境判定**：`tauri dev`（debug 构建）= **dev**，目录名 `com.fhf.photo-browser-dev`；`tauri build`（release 构建）= **prod**，目录名 `com.fhf.photo-browser`。
 - **为什么分三类**：缓存目录会被系统清理（磁盘紧张/优化存储/清理工具）→ 只放可再生的缩略图/预览图；索引库与日志不应被清理 → 放数据目录与日志目录。
+- **缓存被清掉之后**：索引还在、缩略图没了。增量扫描因此**不只比 mtime**，还会检查缩略图是否仍在缓存里（见 `scan.rs` 的 `needs_processing`）——否则每个文件都会被判定"未改动"而跳过，网格从此全是破图且重扫也修不好。
 
 ### 开发环境 (dev) — `tauri dev`
 
@@ -85,7 +86,7 @@ Rust 后端 (src-tauri)
 | `index.db` | SQLite 索引库（WAL 模式，运行时另有 `index.db-wal` / `index.db-shm`） |
 | `thumbs/<id>.jpg` | 320px 缩略图，扫描时生成（`<id>` 为文件绝对路径的 blake3 哈希） |
 | `previews/<id>.jpg` | 高分辨率预览，仅 HEIC/TIFF 等不可直接显示的格式生成（最长边 3840px） |
-| `logs/photo-browser.log.<日期>` | 运行日志，按天滚动；dev 级别 `debug`、prod 级别 `info`，可用 `RUST_LOG` 覆盖 |
+| `logs/photo-browser.log.<日期>` | 运行日志，按天滚动、保留最近 14 天；dev 级别 `debug`、prod 级别 `info`，可用 `RUST_LOG` 覆盖 |
 
 ### 备注
 

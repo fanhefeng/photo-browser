@@ -272,6 +272,26 @@ async fn ensure_preview(state: State<'_, AppState>, id: String) -> Result<bool, 
     }
 }
 
+/// 在系统默认浏览器中打开外部链接（详情面板的 GPS 地图）。
+/// WebView 里 `target="_blank"` 是死的：Tauri 只在应用注册了 `on_new_window`
+/// 时才给 wry 装 new_window_req_handler，本应用没注册，于是 WKWebView 的
+/// createWebViewWithConfiguration 直接返回 nil——点击毫无反应。只能交给系统。
+///
+/// scheme 白名单是必需的：`open` 会按 URL 类型调起任意已注册应用（含 file://
+/// 与自定义 scheme），放任意字符串进去等于给前端一个任意应用启动器。
+/// 校验也保证了 URL 不以 `-` 开头，不会被 `open` 当作命令行选项。
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("backend.badUrl".into());
+    }
+    std::process::Command::new("open")
+        .arg(&url)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// 在系统文件管理器（Finder）中显示该媒体文件
 #[tauri::command]
 fn reveal_in_finder(path: String) -> Result<(), String> {
@@ -299,7 +319,10 @@ fn image_protocol<R: tauri::Runtime>(
             !stem.is_empty() && stem.bytes().all(|b| b.is_ascii_hexdigit())
         });
         let requested = dir_fn().join(&rel);
-        std::thread::spawn(move || {
+        // spawn_blocking 而非裸 thread::spawn：网格快速滚动时 WebView 会一次发出
+        // 成百上千个缩略图请求，每请求一个 OS 线程会瞬间堆出同等数量的线程
+        // （每个都带 MB 级栈）。tokio 的 blocking 池复用线程并自带上限，超出的排队。
+        tauri::async_runtime::spawn_blocking(move || {
             let response = match valid.then(|| std::fs::read(&requested)) {
                 Some(Ok(bytes)) => tauri::http::Response::builder()
                     .header("Content-Type", "image/jpeg")
@@ -384,6 +407,7 @@ pub fn run() {
             get_facets,
             ensure_preview,
             reveal_in_finder,
+            open_external,
             menu::set_locale,
             take_pending_open,
             viewer::list_siblings,

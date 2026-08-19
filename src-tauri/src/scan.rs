@@ -20,6 +20,39 @@ pub fn has_media_ext(p: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// 增量扫描的判定：这个文件要不要重新处理（解析元数据 + 重建缩略图）。
+///
+/// 两个条件缺一不可，因为索引与缩略图**存放在生命周期不同的目录**：
+/// 索引在数据目录（不会被系统动），缩略图在缓存目录（macOS 会自行清理
+/// `~/Library/Caches`，用户也可能手动清）。只比 mtime 的话，缓存被清而索引还在时
+/// 每个文件都判定"未改动"而永久跳过——网格从此全是破图，点多少次重新扫描也修不好。
+/// 缺缩略图即重建，顺带覆盖"首扫时 ffmpeg 缺失导致视频封面全失败、装好后重扫"。
+fn needs_processing(cur_mtime: Option<i64>, indexed_mtime: Option<i64>, has_thumb: bool) -> bool {
+    let unchanged = match (cur_mtime, indexed_mtime) {
+        // 读不到 mtime 一律重新处理：0 哨兵会与旧记录的 0 互相掩护、永不重扫
+        (None, _) => false,
+        (Some(cur), Some(old)) => old == cur,
+        (Some(_), None) => false,
+    };
+    !unchanged || !has_thumb
+}
+
+/// 缩略图缓存里现有的 id 集合。一次 read_dir 换掉逐文件 exists()——
+/// 增量扫描要对每个文件查一次，大目录上百万次 stat 不可接受。
+/// 生成中的临时文件（`<id>.<pid>-<n>.tmp.jpg`）去掉 .jpg 后不等于任何 id，天然不会被误认。
+fn cached_thumb_ids() -> HashSet<String> {
+    let Ok(entries) = std::fs::read_dir(cache::thumbs_dir()) else {
+        return HashSet::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name();
+            Some(name.to_str()?.strip_suffix(".jpg")?.to_string())
+        })
+        .collect()
+}
+
 /// 扫描一个目录：增量解析元数据、生成缩略图/封面、写入索引，过程中发送进度事件。
 /// 拒绝并发扫描；可通过 `cancel_scan` 中断。
 #[tauri::command]
@@ -91,8 +124,9 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
         .filter(|p| has_media_ext(p))
         .collect();
 
-    // 2. 增量：跳过 mtime 未变的文件（仅看当前 root 目录下的已有记录）
+    // 2. 增量：跳过 mtime 未变、且缩略图仍在的文件（仅看当前 root 目录下的已有记录）
     let existing = db::existing_mtimes(&conn, &root).unwrap_or_default();
+    let cached_thumbs = cached_thumb_ids();
     let to_process: Vec<PathBuf> = files
         .iter()
         .filter(|p| {
@@ -102,12 +136,11 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs() as i64);
-            match (cur_mtime, existing.get(&id)) {
-                // 读不到 mtime 一律重新处理：0 哨兵会与旧记录的 0 互相掩护、永不重扫
-                (None, _) => true,
-                (Some(cur), Some((old, _))) => *old != cur,
-                (Some(_), None) => true,
-            }
+            needs_processing(
+                cur_mtime,
+                existing.get(&id).map(|(m, _)| *m),
+                cached_thumbs.contains(&id),
+            )
         })
         .cloned()
         .collect();
@@ -210,4 +243,29 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
         }),
     );
     Ok(items.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn incremental_skips_only_when_indexed_and_thumb_present() {
+        // mtime 一致 + 缩略图还在 → 唯一可以跳过的组合
+        assert!(!needs_processing(Some(100), Some(100), true));
+        // mtime 变了 → 重新处理
+        assert!(needs_processing(Some(200), Some(100), true));
+        // 没有索引记录（新文件）→ 处理
+        assert!(needs_processing(Some(100), None, false));
+        // 读不到 mtime → 处理（0 哨兵会与旧记录的 0 互相掩护、永不重扫）
+        assert!(needs_processing(None, Some(100), true));
+    }
+
+    #[test]
+    fn missing_thumb_forces_rebuild() {
+        // 回归：索引在数据目录、缩略图在缓存目录，macOS 清理 ~/Library/Caches 后
+        // 二者会不同步。只比 mtime 的话这些文件被永久跳过——网格全是破图，
+        // 且点多少次"重新扫描"都修不好。
+        assert!(needs_processing(Some(100), Some(100), false));
+    }
 }

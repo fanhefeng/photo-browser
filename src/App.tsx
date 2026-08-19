@@ -155,7 +155,15 @@ export default function App() {
   const handleOpen = async () => {
     // 后端拒绝并发扫描；扫描中先切了 rootPath 会造成"新目录 + 空网格 + 报错"的撕裂态
     if (scanning) return;
-    const dir = await pickDirectory();
+    // onClick 不接管返回的 Promise：这里不自己 catch 的话，选目录失败会变成
+    // 一个没人处理的 rejection，用户界面上什么也看不到。
+    let dir: string | null;
+    try {
+      dir = await pickDirectory();
+    } catch (e) {
+      setError(i18n.t("error.loadFailed", { msg: String(e) }));
+      return;
+    }
     if (!dir) return;
     setRootPath(dir);
     setFilter(emptyFilter());

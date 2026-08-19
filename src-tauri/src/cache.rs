@@ -90,8 +90,13 @@ pub fn viewer_file(id: &str) -> PathBuf {
 /// 清理过期的查看器缓存（全分辨率 JPEG 体积大，按修改时间淘汰防止无限膨胀；
 /// 命中缓存不刷新 mtime，常用文件到期后会被清掉再按需重转，代价可接受）。
 pub fn prune_viewer_cache(max_age_days: u64) {
-    let cutoff = std::time::SystemTime::now()
-        - std::time::Duration::from_secs(max_age_days * 24 * 3600);
+    // checked_sub：SystemTime 的 `-` 在下溢时 panic。系统时钟被设到 1970 附近
+    // （电池耗尽的 Mac 会这样）就会把启动整个带崩——算不出截止时间就不清理。
+    let Some(cutoff) = std::time::SystemTime::now()
+        .checked_sub(std::time::Duration::from_secs(max_age_days * 24 * 3600))
+    else {
+        return;
+    };
     if let Ok(entries) = fs::read_dir(viewer_dir()) {
         for entry in entries.flatten() {
             let stale = entry

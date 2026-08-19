@@ -146,6 +146,7 @@
   "backend": {
     "scanInProgress": "已有扫描正在进行，请稍候",
     "notDirectory": "所选路径不是有效目录",
-    "readFailed": "读取文件失败"
+    "readFailed": "读取文件失败",
+    "badUrl": "不支持打开该链接"
   }
 }

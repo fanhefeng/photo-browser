@@ -8,10 +8,20 @@
 
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+/// 日志文件保留天数（按天滚动，超出的最旧文件由 appender 自动删除）。
+const KEEP_DAYS: usize = 14;
+
 /// 初始化全局日志。重复调用安全（只有首次生效）。
 pub fn init() {
     let dir = crate::cache::logs_dir();
-    let file_appender = tracing_appender::rolling::daily(&dir, "photo-browser.log");
+    // 保留最近 KEEP_DAYS 个日志文件：daily 滚动本身不会删旧文件，
+    // 不设上限的话日志目录只增不减（长期使用会攒下几百个文件）。
+    // 文件名格式与旧版一致（photo-browser.log.<日期>），历史日志照常可读。
+    let file_appender = tracing_appender::rolling::RollingFileAppender::builder()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_prefix("photo-browser.log")
+        .max_log_files(KEEP_DAYS)
+        .build(&dir);
 
     // 默认：本 crate 在 dev 下 debug、prod 下 info；其余依赖只看 warn。可用 RUST_LOG 覆盖。
     let default = if cfg!(debug_assertions) {
@@ -22,10 +32,13 @@ pub fn init() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default));
 
     let stdout_layer = fmt::layer().with_target(false);
-    let file_layer = fmt::layer()
-        .with_ansi(false)
-        .with_target(false)
-        .with_writer(file_appender);
+    // 日志目录不可写等情况下 build 会失败：宁可只留 stdout，也不能让日志把启动带崩。
+    let file_layer = file_appender.ok().map(|w| {
+        fmt::layer()
+            .with_ansi(false)
+            .with_target(false)
+            .with_writer(w)
+    });
 
     let _ = tracing_subscriber::registry()
         .with(filter)

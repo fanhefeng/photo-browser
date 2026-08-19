@@ -36,8 +36,12 @@ pub fn kind_for_ext(ext: &str) -> &'static str {
 }
 
 /// 视频元数据/封面所需的外部工具（ffprobe + ffmpeg）是否就绪。
+/// 进程内只探测一次：每次探测要 spawn 两个子进程，而前端每个窗口挂载都会查一遍
+/// （React StrictMode 下还会翻倍）。工具在运行期间被装上/卸掉属于极边缘情况，
+/// 重启即重新探测。
 pub fn has_video_tools() -> bool {
-    tool_ok("ffprobe") && tool_ok("ffmpeg")
+    static OK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *OK.get_or_init(|| tool_ok("ffprobe") && tool_ok("ffmpeg"))
 }
 
 fn tool_path(name: &str) -> std::path::PathBuf {

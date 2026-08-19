@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { MediaItem } from "../types";
-import { revealInFinder } from "../api";
+import { openExternal, revealInFinder } from "../api";
 import { CloseIcon, FitIcon } from "./icons";
 import {
   formatDate,
@@ -104,13 +104,22 @@ export function DetailPanel({
       t("detail.video")
     : formatExposure(photo) || t("detail.noParams");
 
+  // 外链必须走 openExternal：WebView 里 target="_blank" 点了毫无反应
+  // （Tauri 未注册新窗口处理器，WKWebView 直接返回 nil）。href 仍然保留，
+  // 让它看起来/右键复制起来都还是个正常链接。
+  const gpsUrl =
+    photo.gps_lat != null && photo.gps_lon != null
+      ? `https://www.openstreetmap.org/?mlat=${photo.gps_lat}&mlon=${photo.gps_lon}#map=15/${photo.gps_lat}/${photo.gps_lon}`
+      : null;
   const gps =
-    photo.gps_lat != null && photo.gps_lon != null ? (
+    gpsUrl && photo.gps_lat != null && photo.gps_lon != null ? (
       <a
         className="link"
-        href={`https://www.openstreetmap.org/?mlat=${photo.gps_lat}&mlon=${photo.gps_lon}#map=15/${photo.gps_lat}/${photo.gps_lon}`}
-        target="_blank"
-        rel="noreferrer"
+        href={gpsUrl}
+        onClick={(e) => {
+          e.preventDefault();
+          openExternal(gpsUrl).catch(() => {});
+        }}
       >
         {photo.gps_lat.toFixed(5)}, {photo.gps_lon.toFixed(5)}
       </a>

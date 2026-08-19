@@ -21,6 +21,19 @@ fn menu_label(key: &str, locale: &str) -> &'static str {
     }
 }
 
+/// 主窗口标题跟随语言。窗口建的时候是 hidden_title，标题不画在窗口上，
+/// 但「窗口」菜单、Mission Control、Dock 右键菜单仍然显示它——
+/// 切到英文后留一个中文标题在那里很突兀。查看器窗口标题恒为空，不参与。
+pub fn sync_window_title<R: tauri::Runtime>(app: &AppHandle<R>, locale: &str) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_title(if locale == "en" {
+            "Photo Browser"
+        } else {
+            "照片浏览器"
+        });
+    }
+}
+
 /// 按当前语言构建原生菜单（默认菜单 + “目录”子菜单 + 仅 dev 的调试入口）。
 pub fn build_menu<R: tauri::Runtime>(app: &AppHandle<R>, locale: &str) -> tauri::Result<Menu<R>> {
     let menu = Menu::default(app)?;
@@ -95,6 +108,7 @@ pub fn handle_menu_event(app: &AppHandle, event: &tauri::menu::MenuEvent) {
         if let Ok(menu) = build_menu(app, lang) {
             let _ = app.set_menu(menu);
         }
+        sync_window_title(app, lang);
         let _ = app.emit("locale-changed", lang);
         return;
     }
@@ -122,5 +136,6 @@ pub fn set_locale(app: AppHandle, lang: String) -> Result<(), String> {
     }
     let menu = build_menu(&app, &lang).map_err(|e| e.to_string())?;
     app.set_menu(menu).map_err(|e| e.to_string())?;
+    sync_window_title(&app, &lang);
     Ok(())
 }
