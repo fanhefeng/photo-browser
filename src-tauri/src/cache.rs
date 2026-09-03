@@ -10,14 +10,17 @@
 //! 路径访问器只负责**拼接路径**，不产生副作用；目录在启动时由 [`ensure_dirs`] 统一创建。
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// 当前运行环境名（dev / prod）
 pub const ENV_NAME: &str = if cfg!(debug_assertions) { "dev" } else { "prod" };
 
 /// 预览缓存版本。预览分辨率/算法变化时 +1，启动时会清空旧预览。
-/// 1 = 1920px（旧），2 = 3840px（当前）。
-const PREVIEW_VERSION: &str = "2";
+/// 1 = 1920px，2 = 3840px 盒式滤波 q75，3 = 3840px Lanczos q90（当前）。
+const PREVIEW_VERSION: &str = "3";
+/// 缩略图缓存版本。1 = 320px 盒式滤波 q75，2 = 640px Lanczos q85（当前，见 `media::THUMB_MAX_PX`）。
+/// 版本变化时清空缩略图；扫描会为缺缩略图的文件重建（`scan::needs_rebuild`）。
+const THUMB_VERSION: &str = "2";
 
 /// 应用目录名，按环境加后缀
 fn app_dir_name() -> &'static str {
@@ -125,18 +128,24 @@ pub fn ensure_dirs() {
     }
 }
 
-/// 预览缓存版本迁移：版本变化时清空旧预览（如分辨率升级 1920→3840），
-/// 避免大图复用过期的低清预览。一次性操作，开销极小。
-pub fn migrate_previews() {
-    let dir = previews_dir();
+/// 缓存版本迁移：版本变化时清空旧预览/缩略图（如分辨率升级、采样算法变化），
+/// 避免复用过期的低清产物。一次性操作，开销极小。
+/// 版本标记文件 `.cache_version` 不带 `.jpg` 后缀，`scan::cached_thumb_ids` 不会把它当成 id。
+pub fn migrate_caches() {
+    migrate_dir(&previews_dir(), PREVIEW_VERSION);
+    migrate_dir(&thumbs_dir(), THUMB_VERSION);
+}
+
+fn migrate_dir(dir: &Path, version: &str) {
     let marker = dir.join(".cache_version");
     let current = fs::read_to_string(&marker).unwrap_or_default();
-    if current.trim() != PREVIEW_VERSION {
-        if let Ok(entries) = fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let _ = fs::remove_file(entry.path());
-            }
-        }
-        let _ = fs::write(&marker, PREVIEW_VERSION);
+    if current.trim() == version {
+        return;
     }
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+    let _ = fs::write(&marker, version);
 }

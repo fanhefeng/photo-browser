@@ -27,7 +27,7 @@ import {
   vpreviewUrl,
   type SiblingItem,
 } from "./api";
-import { DetailPanel, VideoStage, ZoomBar } from "./components/media";
+import { DetailPanel, VideoStage, ZoomBar, zoomedImageStyle } from "./components/media";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -39,6 +39,7 @@ import {
   TrashIcon,
 } from "./components/icons";
 import { useZoom } from "./hooks/useZoom";
+import { useImageFit } from "./hooks/useImageFit";
 
 /** 全屏工具条自动隐藏的空闲阈值 */
 const CHROME_IDLE_MS = 2500;
@@ -433,8 +434,13 @@ function ViewerStage({
   const [src, setSrc] = useState(() => originalSrc(item.path));
   const [failed, setFailed] = useState(false);
   const triedFallback = useRef(false);
-  const imgRef = useRef<HTMLImageElement>(null);
   const { zoom, stageRef, setScale, zoomTo, reset, bind } = zoomCtl;
+  // 适应尺寸/1:1 由舞台尺寸 + 原始尺寸算出（HiDPI 换算 devicePixelRatio）；
+  // ResizeObserver 覆盖窗口 resize 与信息面板开合压窄舞台两种情况。
+  const { fit, imgRef, onLoad } = useImageFit(stageRef);
+  useEffect(() => {
+    if (fit) onScale100(fit.scale100);
+  }, [fit, onScale100]);
 
   const onError = () => {
     if (triedFallback.current) {
@@ -447,26 +453,6 @@ function ViewerStage({
       .then((id) => setSrc(`${vpreviewUrl(id)}?t=${Date.now()}`))
       .catch(() => setFailed(true));
   };
-
-  // 由舞台尺寸 + 原始尺寸算出 1:1 对应的 scale（HiDPI 换算 devicePixelRatio）。
-  // 不依赖当前缩放值；ResizeObserver 覆盖窗口 resize 与信息面板开合压窄舞台两种情况。
-  const recalc = useCallback(() => {
-    const img = imgRef.current;
-    const stage = stageRef.current;
-    if (!img || !stage || !img.naturalWidth) return;
-    const r = stage.getBoundingClientRect();
-    const ar = img.naturalWidth / img.naturalHeight;
-    const fitW = Math.min(r.width, r.height * ar);
-    if (fitW > 0) onScale100(img.naturalWidth / (fitW * window.devicePixelRatio));
-  }, [stageRef, onScale100]);
-
-  useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-    const ro = new ResizeObserver(recalc);
-    ro.observe(stage);
-    return () => ro.disconnect();
-  }, [recalc, stageRef]);
 
   if (failed) {
     return <div className="media-error">{t("viewer.loadFailed")}</div>;
@@ -481,11 +467,8 @@ function ViewerStage({
         alt={item.filename}
         draggable={false}
         onError={onError}
-        onLoad={recalc}
-        style={{
-          transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})`,
-          transition: zoom.scale === 1 ? "transform 0.12s ease-out" : "none",
-        }}
+        onLoad={onLoad}
+        style={zoomedImageStyle(zoom, fit)}
       />
 
       <ZoomBar

@@ -1,11 +1,13 @@
 // Lightbox 与查看器（ViewerApp）共享的媒体展示组件：
 // 视频播放、缩放控制胶囊、文件信息面板。
 
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { MediaItem } from "../types";
 import { openExternal, revealInFinder } from "../api";
+import type { ImageFit } from "../hooks/useImageFit";
+import type { ZoomState } from "../hooks/useZoom";
 import { CloseIcon, FitIcon } from "./icons";
 import {
   formatDate,
@@ -13,6 +15,29 @@ import {
   formatExposure,
   formatSize,
 } from "../utils";
+
+/**
+ * 缩放态大图的内联样式。放大走**真实布局尺寸**（width/height = 适应尺寸 × scale），
+ * 平移才走 transform。若用 `transform: scale()`，WebKit 只会把适应尺寸时光栅化的那张
+ * 位图拉大（实测 1:1 下 1px 棋盘糊成一片灰），改布局尺寸才会按目标尺寸重新采样原图。
+ * 适应尺寸尚未算出（首帧）时退回 transform 缩放，避免闪一下 0×0。
+ */
+export function zoomedImageStyle(zoom: ZoomState, fit: ImageFit | null): CSSProperties {
+  const move = `translate(${zoom.x}px, ${zoom.y}px)`;
+  const ease = "0.12s ease-out";
+  if (!fit) {
+    return {
+      transform: `${move} scale(${zoom.scale})`,
+      transition: zoom.scale === 1 ? `transform ${ease}` : "none",
+    };
+  }
+  return {
+    width: fit.w * zoom.scale,
+    height: fit.h * zoom.scale,
+    transform: move,
+    transition: zoom.scale === 1 ? `width ${ease}, height ${ease}, transform ${ease}` : "none",
+  };
+}
 
 /** 视频播放（asset 协议，支持拖动进度） */
 export function VideoStage({ src }: { src: string }) {

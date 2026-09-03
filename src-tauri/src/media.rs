@@ -245,19 +245,36 @@ pub fn build_media_meta(path: &Path) -> Option<MediaItem> {
     Some(photo)
 }
 
+/// 网格缩略图最长边（像素）。网格单元最大 240 CSS px，Retina 下是 480 设备像素、
+/// 且以 cover 方式裁满正方形：4:3 图要短边 ≥480 才不会被放大发糊，即最长边 640。
+/// 改动此值须同步 `cache::THUMB_VERSION`，否则旧缩略图不会重建。
+pub const THUMB_MAX_PX: u32 = 640;
+/// 大图预览最长边（像素）。HEIC/TIFF 等 WebView 不能直接解码的格式先看它；
+/// 放大超过这个分辨率时前端再换原图/全分辨率转码（见 Lightbox 的 needsSharperSource）。
+pub const PREVIEW_MAX_PX: u32 = 3840;
+const THUMB_JPEG_QUALITY: u8 = 85;
+const PREVIEW_JPEG_QUALITY: u8 = 90;
+
 /// 处理单个文件：解析元数据并生成缩略图。失败返回 None（跳过该文件）。
 pub fn build_media(path: &Path) -> Option<MediaItem> {
     let photo = build_media_meta(path)?;
     let thumb_dst = crate::cache::thumb_file(&photo.id);
     if photo.kind == "video" {
         // 抽一帧做封面（复用 thumb:// 机制）
-        if let Err(e) = video_poster(path, &thumb_dst, 320) {
+        if let Err(e) = video_poster(path, &thumb_dst, THUMB_MAX_PX) {
             tracing::warn!(path = %path.display(), error = %e, "视频封面生成失败");
         }
     } else {
         // (重新)生成缩略图。build_media 只对新增/变更的文件调用，因此总是重建，
         // 避免文件被原地替换后仍显示旧缩略图。
-        if let Err(e) = make_resized(path, &thumb_dst, 320, &photo.ext, photo.orientation) {
+        if let Err(e) = make_resized(
+            path,
+            &thumb_dst,
+            THUMB_MAX_PX,
+            THUMB_JPEG_QUALITY,
+            &photo.ext,
+            photo.orientation,
+        ) {
             tracing::warn!(path = %path.display(), error = %e, "缩略图生成失败");
         }
     }
@@ -380,9 +397,10 @@ fn poster_cmd(src: &Path, dst: &Path, max: u32, seek: Option<&str>) -> Command {
             "-frames:v",
             "1",
             "-vf",
-            &format!("scale='min({max},iw)':-2"),
+            // 竖屏视频以高为准，横屏以宽为准：两边都不超过 max，且不放大
+            &format!("scale='min({max},iw)':'min({max},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"),
             "-q:v",
-            "4",
+            "3",
         ])
         .arg(dst);
     cmd
@@ -483,28 +501,28 @@ pub fn ensure_preview(path: &Path, id: &str, ext: &str, orientation: Option<i64>
         return true;
     }
     // 较高分辨率，让 HEIC/TIFF 等不可直接显示的格式也接近原图清晰度
-    make_resized(path, &dst, 3840, ext, orientation).is_ok()
+    make_resized(path, &dst, PREVIEW_MAX_PX, PREVIEW_JPEG_QUALITY, ext, orientation).is_ok()
 }
 
-/// 把源图缩放到最长边 `max` 像素并保存为 JPEG（经 tmp 原子落位）。
+/// 把源图缩放到最长边 `max` 像素并保存为质量 `quality` 的 JPEG（经 tmp 原子落位）。
 /// 标准格式走 image crate；HEIC/HEIF/AVIF 走 macOS 自带的 sips。
 fn make_resized(
     src: &Path,
     dst: &Path,
     max: u32,
+    quality: u8,
     ext: &str,
     orientation: Option<i64>,
 ) -> Result<(), String> {
     if needs_sips(ext) {
-        return sips_resize(src, dst, max);
+        return sips_resize(src, dst, max, quality);
     }
     match image::open(src) {
         Ok(img) => {
-            let resized = img.thumbnail(max, max);
+            let resized = downscale(img, max);
             let rotated = apply_orientation(resized, orientation.unwrap_or(1));
             let tmp = tmp_path(dst);
-            flatten_to_rgb(&rotated)
-                .save(&tmp)
+            save_jpeg(&flatten_to_rgb(&rotated), &tmp, quality)
                 .map_err(|e| {
                     let _ = std::fs::remove_file(&tmp);
                     format!("保存缩略图失败: {e}")
@@ -512,8 +530,33 @@ fn make_resized(
                 .and_then(|_| commit_tmp(&tmp, dst))
         }
         // image 解码失败时也尝试 sips（覆盖个别异常编码）
-        Err(_) => sips_resize(src, dst, max),
+        Err(_) => sips_resize(src, dst, max, quality),
     }
+}
+
+/// 缩到最长边不超过 `max`（不放大）。两步走：先用快速盒式滤波粗缩到目标的 2 倍以内
+/// （48MP 直接 Lanczos 要慢一个量级），再 Lanczos3 精缩到目标——边缘锐度接近
+/// 系统「预览」，速度仍可接受。`thumbnail()` 单独用是"每个源像素只贡献给一个目标像素"，
+/// 缩放比接近 1 时发糊/走样，正是之前预览图偏软的原因之一。
+fn downscale(img: image::DynamicImage, max: u32) -> image::DynamicImage {
+    let (w, h) = (img.width(), img.height());
+    if w <= max && h <= max {
+        return img;
+    }
+    let coarse = if w > max * 2 || h > max * 2 {
+        img.thumbnail(max * 2, max * 2)
+    } else {
+        img
+    };
+    coarse.resize(max, max, image::imageops::FilterType::Lanczos3)
+}
+
+/// 以指定质量写 JPEG。`save()` 的默认质量 75 在放大看时块状明显，缩略图/预览分别用 85/90。
+fn save_jpeg(img: &image::RgbImage, dst: &Path, quality: u8) -> Result<(), String> {
+    let file = std::fs::File::create(dst).map_err(|e| e.to_string())?;
+    let mut w = std::io::BufWriter::new(file);
+    let enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut w, quality);
+    img.write_with_encoder(enc).map_err(|e| e.to_string())
 }
 
 /// 转为 RGB 以便存成 JPEG。带透明通道的图先合成到白色背景，
@@ -558,10 +601,12 @@ pub fn sips_full_jpeg(src: &Path, dst: &Path) -> Result<(), String> {
 }
 
 /// 调用 macOS 的 sips 生成缩略图（自动处理 HEIC、自动按 EXIF 旋转），经 tmp 原子落位
-fn sips_resize(src: &Path, dst: &Path, max: u32) -> Result<(), String> {
+fn sips_resize(src: &Path, dst: &Path, max: u32, quality: u8) -> Result<(), String> {
     let tmp = tmp_path(dst);
     let mut cmd = Command::new("sips");
-    cmd.args(["-s", "format", "jpeg", "-Z", &max.to_string()])
+    let quality = quality.to_string();
+    let max = max.to_string();
+    cmd.args(["-s", "format", "jpeg", "-s", "formatOptions", &quality, "-Z", &max])
         .arg(src)
         .arg("--out")
         .arg(&tmp);

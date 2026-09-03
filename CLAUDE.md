@@ -90,6 +90,16 @@ package.json 的 version 变化
 
 **两条数据库连接，靠 WAL 并发**：`AppState.db` 是查询用的共享 `Arc<Mutex<Connection>>`（Arc 是为了让 async 命令把连接 clone 进 `spawn_blocking` 闭包）；扫描在 `spawn_blocking` 里用 `db::open()` 开**独立连接**写入。二者靠 SQLite WAL 模式并发读写，所以扫描进行中前端仍可查询。
 
+**大图放大改的是 `<img>` 的真实布局尺寸，不是 CSS `transform: scale()`**（`media.tsx` 的
+`zoomedImageStyle` + `hooks/useImageFit.ts`）。transform 只会把"适应窗口时光栅化好的那张位图"
+拉大——实测 1:1 下 1px 棋盘糊成一片灰、文字比 Preview 明显发虚；改 width/height 后 WebKit 按目标
+尺寸从解码后的原图重新采样，锐度与 Preview 一致。平移仍走 translate。`useImageFit` 同时给出
+`scale100`（1:1 所需的相对缩放，HiDPI 已换算），Lightbox 与查看器的百分比/1:1 都以原始像素为基准
+（与 Preview/照片 App 口径一致）。Lightbox 对 HEIC 等走 3840px 预览的格式，放大超过预览分辨率时
+（`needsSharperSource`）自动换原图（WebKit 原生解码 HEIC），解不了再走 `viewer_preview` 全分辨率转码。
+缩略图 640px / 预览 3840px 都是两步缩放（盒式粗缩 + Lanczos3 精缩）+ 指定 JPEG 质量；**改尺寸或算法要
+同步 bump `cache.rs` 的 `THUMB_VERSION` / `PREVIEW_VERSION`**，启动时清空旧缓存，扫描会重建缺失的缩略图。
+
 **`photos` 表同时存照片和视频**——靠 `kind` 列（`'photo'`/`'video'`）区分，这是历史命名，别被表名误导。视频不生成 `preview`（前端直接播原文件），`ensure_preview` 命令对 video 直接返回 false。
 
 **`id` = 文件绝对路径的 blake3 哈希**（`media::media_id`），同时用作缓存文件名 `thumbs/<id>.jpg` / `previews/<id>.jpg`。删除索引时必须连带删这两个缓存文件（见 `scan_impl` 步骤 5），否则缓存目录无限膨胀。

@@ -26,9 +26,19 @@ pnpm tauri dev -- -- /path/xx.jpg
 
 RUST_LOG=debug 可看 debug 级日志。日志同时写 `~/Library/Logs/com.fhf.photo-browser-dev/`。
 
-## 驱动与观察（本机无截屏权限）
+## 驱动与观察
 
-- `screencapture` 会因屏幕录制权限失败（"could not create image from display"）——别指望截图。
+- **截屏已授权**（2026-09 起）：`screencapture -x -R<x>,<y>,<w>,<h> out.png` 只截应用窗口区域
+  （窗口位置/尺寸用 System Events 的 `{position, size} of window 1` 拿），避免把别的窗口内容截进去。
+  截出来是 2× 设备像素。**同一条 bash 里先 `set frontmost to true`、再 `sleep 0.5`、再截**——命令
+  一结束终端就抢回前台，分两条命令截到的是终端。
+- **argv 传的文件必须真实存在**（`canonicalize` 失败会静默回落到主窗口）；索引里的路径可能已失效，
+  先 `ls` 确认。测试素材复制到 scratchpad 再传（scratchpad 在 $HOME 之外，顺带覆盖 asset scope 动态放行）。
+- **像素级验证清晰度**：用 ffmpeg 生成 1px 棋盘（`geq` 表达式）作为素材，1:1 下应是清晰棋盘，
+  若成一片灰就说明在放大一张缩过的位图。对比 Preview：`open -a Preview f.jpg` + `⌘0`（实际大小 =
+  1 图像像素/点 = 应用里的 200%），两边 `ffmpeg crop` 同一段文字 `vstack` 拼图看。
+- 缩放胶囊在舞台底部居中（hover 才显示，先 `cliclick m:` 悬停）；1100×760 窗口在 (206,62) 时
+  「+」在 (761,782)、「1:1」在 (832,782)。
 - **辅助功能已授权**：用 `osascript` + System Events 驱动键盘、查窗口：
 
 ```applescript
@@ -39,7 +49,7 @@ end tell
 -- 查窗口数/尺寸：count windows of process "photo-browser"
 ```
 
-- 窗口内容看不到（WKWebView 不暴露辅助功能树），**证据来源是 tracing 日志**：
+- WKWebView 不暴露辅助功能树，除截图外的**证据来源是 tracing 日志**：
   `查看器：取走待打开文件` / `列出同目录媒体 count=N index=I` / `读取文件元数据` / `已移入废纸篓` / `sips 全分辨率转码兜底`。
 - 废纸篓验证：`~/.Trash` 读不了（TCC），用
   `osascript -e 'tell application "Finder" to get name of items of trash'`。

@@ -680,9 +680,12 @@ html[data-hover-info="off"] .cell__overlay {
   padding: 48px 24px 24px;
 }
 .lightbox__img {
-  /* 占满舞台并按宽高比留白：缩略图占位即满屏，预览在原地变清晰，不再尺寸跳变 */
+  /* 占满舞台并按宽高比留白：缩略图占位即满屏，预览在原地变清晰，不再尺寸跳变。
+     放大时由 zoomedImageStyle 用内联 width/height 覆盖成真实布局尺寸（见 media.tsx），
+     flex: none 让超出舞台的图仍以舞台中心为原点、不被压缩。 */
   width: 100%;
   height: 100%;
+  flex: none;
   object-fit: contain;
   will-change: transform;
 }

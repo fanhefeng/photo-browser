@@ -342,7 +342,7 @@ fn image_protocol<R: tauri::Runtime>(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     cache::ensure_dirs();
-    cache::migrate_previews();
+    cache::migrate_caches();
     cache::prune_viewer_cache(30);
     logging::init();
     tracing::info!(env = cache::ENV_NAME, "应用启动");
