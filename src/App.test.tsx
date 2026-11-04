@@ -1,7 +1,7 @@
 // 主窗口的查询编排。这里三条逻辑都属于"坏了也不报错、只是显示错东西"：
 // 在途请求乱序覆盖、列表被换掉后大图指向别的照片、结果被上限截断而无提示。
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { Facets, MediaItem, QueryResult } from "./types";
 

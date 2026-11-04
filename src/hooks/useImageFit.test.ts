@@ -1,6 +1,6 @@
 // 适应尺寸 / 1:1 / "该换更清晰图源了吗"的纯数学。算错了不会报错，
 // 只是 1:1 按钮显示成 200% 或者放大后一直糊着——正是该钉住的那类逻辑。
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { computeFit, needsSharperSource } from "./useImageFit";
 

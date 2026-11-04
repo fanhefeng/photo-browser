@@ -2,7 +2,7 @@
 // 下标算错 = 删完跳到了别的照片；不按 path 重定位 = await 期间用户导航后删错文件；
 // 漏了 e.repeat 守卫 = 按住退格键一次误按连删好几个文件（且都进了废纸篓）。
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { SiblingItem } from "./api";
 

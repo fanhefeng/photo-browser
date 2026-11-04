@@ -6,7 +6,7 @@
 localStorage.setItem("lang", "zh");
 
 import { cleanup } from "@testing-library/react";
-import { afterEach, beforeEach, vi } from "vitest";
+import { afterEach, beforeEach, vi } from "vite-plus/test";
 
 // 每个用例后卸载组件。@testing-library 的自动清理只在开了 globals 时才挂得上
 // 全局 afterEach，本项目用显式 import 风格，所以必须自己挂——否则上一个用例的

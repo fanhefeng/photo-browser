@@ -2,7 +2,7 @@
 // 符号写反、锚点算成舞台左上角而非中心，肉眼都只是"缩放感觉怪怪的"，
 // 不会报错也不会崩，正是最该由测试钉住的那类逻辑。
 import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { useZoom } from "./useZoom";
 

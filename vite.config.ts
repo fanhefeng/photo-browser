@@ -48,6 +48,11 @@ export default defineConfig({
   // 测的是前端那些"错了不会崩、只会悄悄显示错东西"的有状态逻辑：
   // 在途请求乱序、大图按 id 重定位、删除后的下标前移、缩放锚点。
   test: {
+    // Vitest v4 compatibility: preserve mock call history.
+    // Remove after tests no longer rely on calls from setup or earlier tests.
+    // https://viteplus.dev/guide/vitest-v5#remove-unneeded-compatibility-settings
+    // https://vitest.dev/guide/migration/#clearmocks-is-enabled-by-default
+    clearMocks: false,
     environment: "jsdom",
     // 每个用例后清掉 mock 调用记录与已挂载的组件，避免互相串味
     restoreMocks: true,
