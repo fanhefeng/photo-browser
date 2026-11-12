@@ -105,6 +105,23 @@ jobs:
           mkdir -p src-tauri/binaries
           cp .ffmpeg-build/sidecars/* src-tauri/binaries/
 
+      # GitHub draft releases do not create their tag until publication.
+      # Materialize the exact build tag first so the final source/tag gate can verify it.
+      - name: Pin release tag to build commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/v${VERSION}" >/dev/null 2>&1; then
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f "ref=refs/tags/v${VERSION}" -f "sha=${GITHUB_SHA}"
+          fi
+          git fetch --no-tags origin "+refs/tags/v${VERSION}:refs/tags/v${VERSION}"
+          bash scripts/verify-release-tag.sh "v${VERSION}" "$GITHUB_SHA" required
+          if [ "$(gh release view "v${VERSION}" --json isDraft --jq .isDraft 2>/dev/null || echo missing)" = true ]; then
+            gh release edit "v${VERSION}" --target "$GITHUB_SHA"
+          fi
+
       # tauri-action 会自动跑 beforeBuildCommand(pnpm build)+ tauri build，
       # 然后用 tag 创建 Release 并上传生成的 .dmg / .app.tar.gz。
       # 版本号取自 src-tauri/tauri.conf.json，产物名形如 photo-browser_0.1.0_universal.dmg。
