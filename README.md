@@ -101,7 +101,7 @@ Rust 后端 (src-tauri)
 - Windows 上数据与缓存同属 `%LOCALAPPDATA%`，靠不同子目录/文件名区分，不会冲突。
 - 路径解析（`dirs` crate）跨平台，但部分功能（HEIC 解码用 `sips`、"在访达中显示"用 `open`）目前面向 macOS；Linux/Windows 下数据会落在上表位置，但相关功能需另行适配。
 - 运行时实际路径：启动会打印到 DevTools 控制台（含三类目录），或调用 `app_info` 命令获取。
-- **历史遗留**：旧版本曾把所有数据混放在 `~/Library/Caches/com.fhf.photo-browser`（macOS），可安全删除：`rm -rf ~/Library/Caches/com.fhf.photo-browser`。
+- **旧版数据与当前缓存**：旧版本曾把索引等数据混放在 `~/Library/Caches/com.fhf.photo-browser`（macOS），但该目录仍是当前正式版的缓存目录，并非整体废弃。不要将它当作历史遗留目录直接删除；当前索引位于上表的数据目录。若需清理缓存，请先退出应用并确认具体文件用途；删除缩略图或预览缓存会导致之后重新生成，缩略图可能需要重新扫描原目录才能恢复。
 
 ## 第三方软件
 
