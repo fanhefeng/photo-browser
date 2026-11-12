@@ -1,7 +1,10 @@
+import { useRef } from "react";
+import Select from "./Select";
 import { useTranslation } from "react-i18next";
 import { dragWindow } from "../api";
 import type { Filter, SortBy } from "../types";
 import {
+  CloseIcon,
   ArrowDownIcon,
   ArrowUpIcon,
   FolderIcon,
@@ -43,6 +46,7 @@ export default function Toolbar({
   progress,
 }: Props) {
   const { t } = useTranslation();
+  const searchRef = useRef<HTMLInputElement>(null);
   const pct =
     progress && progress.total > 0
       ? Math.round((progress.done / progress.total) * 100)
@@ -90,7 +94,7 @@ export default function Toolbar({
 
       {!rootPath ? null : scanning && progress ? (
         <div className="toolbar__progress">
-          <div className="progress">
+          <div className="progress" role="progressbar" aria-label={t("grid.importing")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
             <div className="progress__bar" style={{ width: `${pct}%` }} />
           </div>
           <span className="toolbar__progress-text">
@@ -102,30 +106,33 @@ export default function Toolbar({
         </div>
       ) : (
         <div className="toolbar__right">
-          <label className="search">
-            <SearchIcon className="search__icon" />
-            <input
-              className="search__input"
-              type="search"
-              aria-label={t("toolbar.searchPlaceholder")}
-              placeholder={t("toolbar.searchPlaceholder")}
-              value={filter.text ?? ""}
-              onChange={(e) => onChange({ text: e.target.value })}
-            />
-          </label>
+          <div className="search">
+            <label className="search__field">
+              <SearchIcon className="search__icon" />
+              <input
+                ref={searchRef}
+                className="search__input"
+                type="search"
+                aria-label={t("toolbar.searchPlaceholder")}
+                placeholder={t("toolbar.searchPlaceholder")}
+                value={filter.text ?? ""}
+                onChange={(e) => onChange({ text: e.target.value })}
+              />
+            </label>
+            {filter.text && (
+              <button type="button" className="search__clear" aria-label={t("toolbar.clearSearch")}
+                onClick={() => { onChange({ text: "" }); searchRef.current?.focus(); }}>
+                <CloseIcon size={13} />
+              </button>
+            )}
+          </div>
           <div className="sort">
-            <select
-              className="select"
-              aria-label={t("toolbar.sortBy")}
+            <Select
+              label={t("toolbar.sortBy")}
               value={filter.sort_by}
-              onChange={(e) => onChange({ sort_by: e.target.value as SortBy })}
-            >
-              {SORT_VALUES.map((v) => (
-                <option key={v} value={v}>
-                  {t(`sort.${v}`)}
-                </option>
-              ))}
-            </select>
+              onChange={(sort_by) => onChange({ sort_by })}
+              options={SORT_VALUES.map((value) => ({ value, label: t(`sort.${value}`) }))}
+            />
             <button
               className="btn btn--icon"
               title={filter.sort_dir === "desc" ? t("toolbar.sortDesc") : t("toolbar.sortAsc")}
@@ -137,7 +144,6 @@ export default function Toolbar({
               {filter.sort_dir === "desc" ? <ArrowDownIcon /> : <ArrowUpIcon />}
             </button>
           </div>
-          <span className="toolbar__sep" />
           <button
             className="btn btn--icon"
             onClick={onSettings}

@@ -57,6 +57,7 @@ export default function PhotoGrid({ photos, onSelect, filtered, onResetFilters, 
             onError={(e) => e.currentTarget.classList.add("cell__img--broken")}
             onLoad={(e) => e.currentTarget.classList.remove("cell__img--broken")}
           />
+          <span className="cell__fallback">{t("grid.previewUnavailable")}</span>
           {p.kind === "video" && (
             <>
               <span className="cell__play" aria-hidden>

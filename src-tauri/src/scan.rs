@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use serde_json::json;
@@ -51,6 +51,16 @@ fn cached_thumb_ids() -> HashSet<String> {
             Some(name.to_str()?.strip_suffix(".jpg")?.to_string())
         })
         .collect()
+}
+
+/// Check cancellation before requesting another directory entry (which may perform I/O).
+/// An in-flight filesystem operation still has to return before it can be interrupted.
+fn until_cancelled<'a, I: Iterator + 'a>(mut iter: I, cancel: &'a AtomicBool)
+    -> impl Iterator<Item = I::Item> + 'a
+{
+    std::iter::from_fn(move || {
+        if cancel.load(Ordering::Relaxed) { None } else { iter.next() }
+    })
 }
 
 /// 扫描一个目录：增量解析元数据、生成缩略图/封面、写入索引，过程中发送进度事件。
@@ -106,8 +116,7 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
     //    不可读 .Trashes 等系统目录若导致整体放弃清理，清理将永远无法执行。
     let mut error_paths: Vec<PathBuf> = Vec::new();
     let mut unscoped_errors = 0usize; // 定位不到路径的错误：无法限定范围，只能整体跳过清理
-    let files: Vec<PathBuf> = WalkDir::new(&root)
-        .into_iter()
+    let files: Vec<PathBuf> = until_cancelled(WalkDir::new(&root).into_iter(), &cancel)
         .filter_map(|e| match e {
             Ok(entry) => Some(entry),
             Err(err) => {
@@ -123,6 +132,16 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
         .map(|e| e.into_path())
         .filter(|p| has_media_ext(p))
         .collect();
+
+    // Enumeration can take a long time on large or remote volumes. A partial list must
+    // never drive missing-file cleanup, cache pruning, or a new round of metadata I/O.
+    if cancel.load(Ordering::Relaxed) {
+        let _ = app.emit("scan-done", json!({
+            "processed": 0, "total_files": files.len(), "cancelled": true,
+            "failed": 0, "walk_errors": error_paths.len() + unscoped_errors,
+        }));
+        return Ok(0);
+    }
 
     // 2. 增量：跳过 mtime 未变、且缩略图仍在的文件（仅看当前 root 目录下的已有记录）
     let existing = db::existing_mtimes(&conn, &root).unwrap_or_default();
@@ -251,6 +270,26 @@ fn scan_impl(app: AppHandle, root: String) -> Result<usize, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancelled_enumeration_does_not_request_another_entry() {
+        use std::cell::Cell;
+        let cancel = AtomicBool::new(false);
+        let calls = Cell::new(0);
+        let source = (0..100).inspect(|_| calls.set(calls.get() + 1));
+        let mut entries = until_cancelled(source, &cancel);
+        assert_eq!(entries.next(), Some(0));
+        cancel.store(true, Ordering::Relaxed);
+        assert_eq!(entries.next(), None);
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn already_cancelled_enumeration_never_touches_source() {
+        let cancel = AtomicBool::new(true);
+        let source = std::iter::from_fn(|| -> Option<()> { panic!("unexpected I/O") });
+        assert_eq!(until_cancelled(source, &cancel).count(), 0);
+    }
 
     #[test]
     fn incremental_skips_only_when_indexed_and_thumb_present() {

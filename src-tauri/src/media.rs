@@ -398,7 +398,9 @@ fn poster_cmd(src: &Path, dst: &Path, max: u32, seek: Option<&str>) -> Command {
             "1",
             "-vf",
             // 竖屏视频以高为准，横屏以宽为准：两边都不超过 max，且不放大
-            &format!("scale='min({max},iw)':'min({max},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"),
+            &format!("scale='min({max},iw)':'min({max},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2:out_range=full"),
+            "-pix_fmt",
+            "yuvj420p",
             "-q:v",
             "3",
         ])
@@ -778,6 +780,14 @@ fn get_gps(exif: &exif::Exif, coord: Tag, refr: Tag, negative_refs: &[char]) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn video_poster_uses_full_range_jpeg() {
+        let cmd = poster_cmd(Path::new("input.mts"), Path::new("poster.jpg"), 640, Some("1"));
+        let args: Vec<_> = cmd.get_args().map(|s| s.to_string_lossy().into_owned()).collect();
+        assert!(args.iter().any(|s| s.contains("out_range=full")));
+        assert!(args.windows(2).any(|pair| pair == ["-pix_fmt", "yuvj420p"]));
+    }
 
     #[test]
     fn iso6709_basic() {

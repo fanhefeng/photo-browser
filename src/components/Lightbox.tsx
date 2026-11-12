@@ -11,6 +11,7 @@ import {
   vpreviewUrl,
 } from "../api";
 import { isWebDisplayable } from "../utils";
+import { useModalFocus } from "../hooks/useModalFocus";
 import { useZoom } from "../hooks/useZoom";
 import { needsSharperSource, useImageFit } from "../hooks/useImageFit";
 import { DetailPanel, VideoStage, ZoomBar, zoomedImageStyle } from "./media";
@@ -31,9 +32,9 @@ export default function Lightbox({ photos, index, onClose, onNavigate }: Props) 
   // 键盘导航。焦点在视频控件上时方向键留给播放器快进/快退（与查看器一致）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || (e.target as HTMLElement | null)?.closest('[role="dialog"]') !== rootRef.current) return;
       const onVideo = (e.target as HTMLElement | null)?.tagName === "VIDEO";
-      if (e.key === "Escape") onClose();
-      else if (e.key === "ArrowLeft" && !onVideo && index > 0) onNavigate(index - 1);
+      if (e.key === "ArrowLeft" && !onVideo && index > 0) onNavigate(index - 1);
       else if (e.key === "ArrowRight" && !onVideo && index < photos.length - 1)
         onNavigate(index + 1);
     };
@@ -41,12 +42,7 @@ export default function Lightbox({ photos, index, onClose, onNavigate }: Props) 
     return () => window.removeEventListener("keydown", onKey);
   }, [index, photos.length, onClose, onNavigate]);
 
-  // 打开时接管焦点（避免焦点滞留在背景网格），关闭时还原到来源元素
-  useEffect(() => {
-    const prev = document.activeElement as HTMLElement | null;
-    rootRef.current?.focus();
-    return () => prev?.focus?.();
-  }, []);
+  useModalFocus(rootRef, onClose);
 
   return (
     <div

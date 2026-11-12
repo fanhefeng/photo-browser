@@ -1,9 +1,11 @@
 {
   "welcome": {
-    "title": "Local Photo Browser",
-    "desc": "Pick a folder to auto-read EXIF, generate thumbnails, and browse by time, camera, format, and location.",
+    "title": "Photo Browser",
     "open": "Open Folder",
-    "formats": "JPG · PNG · HEIC · MP4 and more; RAW is not supported yet"
+    "subtitle": "Browse your photos and videos",
+    "recent": "Recent folders",
+    "clearRecent": "Clear history",
+    "noRecent": "Folders you open will appear here"
   },
   "toolbar": {
     "open": "Open",
@@ -13,7 +15,8 @@
     "cancel": "Cancel",
     "sortAsc": "Ascending",
     "sortDesc": "Descending",
-    "sortBy": "Sort by"
+    "sortBy": "Sort by",
+    "clearSearch": "Clear search"
   },
   "sort": {
     "taken_at": "Date taken",
@@ -72,7 +75,8 @@
     "searchResults": "Search results",
     "folderEmpty": "No photos or videos to browse in this folder",
     "folderEmptyHint": "JPG, PNG, HEIC, MP4 and other common formats are supported. RAW is not supported yet. Rescan or open another folder.",
-    "resetFilters": "Clear search and filters"
+    "resetFilters": "Clear search and filters",
+    "previewUnavailable": "Preview unavailable"
   },
   "lightbox": {
     "prev": "Previous",
@@ -127,13 +131,10 @@
     "display": "Display",
     "thumbSize": "Thumbnail size",
     "hoverInfo": "Show info on hover",
-    "hoverInfoHint": "Show filename and date when hovering a thumbnail",
     "general": "General",
     "language": "Language",
     "langSystem": "Follow system",
-    "autoUpdate": "Check for updates at launch",
-    "autoUpdateHint": "Release builds only; you can always use “Check for Updates…” in the menu",
-    "savedAutomatically": "Changes are saved automatically"
+    "autoUpdate": "Check for updates at launch"
   },
   "banner": {
     "ffmpegMissing": "ffmpeg / ffprobe not found. Videos cannot generate posters or metadata. Install via Homebrew: brew install ffmpeg",

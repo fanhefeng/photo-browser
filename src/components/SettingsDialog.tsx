@@ -1,7 +1,10 @@
 // 设置弹窗：主题换肤 / 缩略图大小 / 悬停信息 / 语言 / 自动检查更新。
 // 设置项读写走 settings.ts（localStorage 持久化，改动即时生效）；
 // 语言单独走 i18next（localStorage "lang"），并同步后端原生菜单。
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import type { CSSProperties } from "react";
+import { useModalFocus } from "../hooks/useModalFocus";
+import Select from "./Select";
 import { useTranslation } from "react-i18next";
 import i18n from "../i18n";
 import { setLocale } from "../api";
@@ -24,46 +27,7 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
         : "en"
   );
 
-  // Esc 关闭：捕获阶段拦截，避免同时触发 Lightbox 的窗口级 Esc（会连带关大图）。
-  // 同一个 handler 兼管 Tab 焦点陷阱——aria-modal 只告诉读屏软件"背景不可达"，
-  // 真把 Tab 拦在弹窗内还得自己来。关闭后焦点归还打开它的控件（齿轮按钮 / ⌘, 时为 body）。
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    boxRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const box = boxRef.current;
-      if (!box) return;
-      // Switch 的 checkbox 是 opacity:0 而非 display:none，仍可聚焦，无需特殊处理
-      const items = Array.from(
-        box.querySelectorAll<HTMLElement>("button, input, select, [tabindex]:not([tabindex='-1'])")
-      ).filter((el) => !el.hasAttribute("disabled"));
-      if (items.length === 0) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      const active = document.activeElement;
-      if (!box.contains(active)) {
-        e.preventDefault();
-        first.focus();
-      } else if (e.shiftKey && (active === first || active === box)) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => {
-      window.removeEventListener("keydown", onKey, true);
-      opener?.focus();
-    };
-  }, [onClose]);
+  useModalFocus(boxRef, onClose);
 
   const changeLang = async (choice: LangChoice) => {
     setLang(choice);
@@ -90,10 +54,7 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
         tabIndex={-1}
       >
         <div className="settings__head">
-          <div>
-            <h2 className="settings__title">{t("settings.title")}</h2>
-            <p className="settings__hint">{t("settings.savedAutomatically")}</p>
-          </div>
+          <h2 className="settings__title">{t("settings.title")}</h2>
           <button
             className="btn btn--icon"
             onClick={onClose}
@@ -104,112 +65,110 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <section className="settings__section">
-          <h3 className="settings__section-title">{t("settings.appearance")}</h3>
-          <div className="theme-cards" role="group" aria-label={t("settings.appearance")}>
-            {THEMES.map((th) => (
-              <label
-                key={th.id}
-                className={`theme-card ${settings.theme === th.id ? "theme-card--on" : ""}`}
-                data-theme={th.id}
-              >
-                <input
-                  className="theme-card__input"
-                  type="radio"
-                  name="theme"
-                  value={th.id}
-                  checked={settings.theme === th.id}
-                  onChange={() => updateSettings({ theme: th.id })}
-                />
-                <span className="tp" aria-hidden>
-                  <span className="tp__side">
-                    <span /><span /><span />
+        <div className="settings__body">
+          <section className="settings__section">
+            <h3 className="settings__section-title">{t("settings.appearance")}</h3>
+            <div className="theme-cards" role="group" aria-label={t("settings.appearance")}>
+              {THEMES.map((th) => (
+                <label
+                  key={th.id}
+                  className={`theme-card ${settings.theme === th.id ? "theme-card--on" : ""}`}
+                  data-theme={th.id}
+                >
+                  <input
+                    className="theme-card__input"
+                    type="radio"
+                    name="theme"
+                    value={th.id}
+                    checked={settings.theme === th.id}
+                    onChange={() => updateSettings({ theme: th.id })}
+                  />
+                  <span className="tp" aria-hidden>
+                    <span className="tp__side">
+                      <span /><span /><span />
+                    </span>
+                    <span className="tp__main">
+                      <span /><span /><span /><span />
+                    </span>
                   </span>
-                  <span className="tp__main">
-                    <span /><span /><span /><span />
+                  <span className="theme-card__name">
+                    {t(`settings.theme.${th.id}`)}
+                    <span className="theme-card__mark" aria-hidden>
+                      {settings.theme === th.id && (
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                          <path
+                            d="m2.5 6 2.3 2.3 4.7-4.6"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      )}
+                    </span>
                   </span>
-                </span>
-                <span className="theme-card__name">
-                  {t(`settings.theme.${th.id}`)}
-                  <span className="theme-card__mark" aria-hidden>
-                    {settings.theme === th.id && (
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                        <path
-                          d="m2.5 6 2.3 2.3 4.7-4.6"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    )}
-                  </span>
-                </span>
+                </label>
+              ))}
+            </div>
+          </section>
+
+          <section className="settings__section">
+            <h3 className="settings__section-title">{t("settings.display")}</h3>
+            <div className="settings__row">
+              <label className="settings__label" htmlFor="set-thumb">
+                {t("settings.thumbSize")}
               </label>
-            ))}
-          </div>
-        </section>
-
-        <section className="settings__section">
-          <h3 className="settings__section-title">{t("settings.display")}</h3>
-          <div className="settings__row">
-            <label className="settings__label" htmlFor="set-thumb">
-              {t("settings.thumbSize")}
-            </label>
-            <input
-              id="set-thumb"
-              className="slider"
-              type="range"
-              min={THUMB_MIN}
-              max={THUMB_MAX}
-              step={8}
-              value={settings.thumbSize}
-              onChange={(e) => updateSettings({ thumbSize: Number(e.target.value) })}
-            />
-            <span className="settings__value">{settings.thumbSize}px</span>
-          </div>
-          <div className="settings__row">
-            <div className="settings__label">
-              <div>{t("settings.hoverInfo")}</div>
-              <div className="settings__hint">{t("settings.hoverInfoHint")}</div>
+              <input
+                id="set-thumb"
+                className="slider"
+                type="range"
+                min={THUMB_MIN}
+                max={THUMB_MAX}
+                step={8}
+                value={settings.thumbSize}
+                style={{ "--slider-progress": `${((settings.thumbSize - THUMB_MIN) / (THUMB_MAX - THUMB_MIN)) * 100}%` } as CSSProperties}
+                onChange={(e) => updateSettings({ thumbSize: Number(e.target.value) })}
+              />
+              <span className="settings__value">{settings.thumbSize}px</span>
             </div>
-            <Switch
-              checked={settings.hoverInfo}
-              label={t("settings.hoverInfo")}
-              onChange={(v) => updateSettings({ hoverInfo: v })}
-            />
-          </div>
-        </section>
-
-        <section className="settings__section">
-          <h3 className="settings__section-title">{t("settings.general")}</h3>
-          <div className="settings__row">
-            <label className="settings__label" htmlFor="set-lang">
-              {t("settings.language")}
+            <label className="settings__row settings__row--toggle">
+              <span className="settings__label">{t("settings.hoverInfo")}</span>
+              <Switch
+                checked={settings.hoverInfo}
+                label={t("settings.hoverInfo")}
+                onChange={(v) => updateSettings({ hoverInfo: v })}
+              />
             </label>
-            <select
-              id="set-lang"
-              className="select"
-              value={lang}
-              onChange={(e) => void changeLang(e.target.value as LangChoice)}
-            >
-              <option value="system">{t("settings.langSystem")}</option>
-              <option value="zh">中文</option>
-              <option value="en">English</option>
-            </select>
-          </div>
-          <div className="settings__row">
-            <div className="settings__label">
-              <div>{t("settings.autoUpdate")}</div>
-              <div className="settings__hint">{t("settings.autoUpdateHint")}</div>
+          </section>
+
+          <section className="settings__section">
+            <h3 className="settings__section-title">{t("settings.general")}</h3>
+            <div className="settings__row">
+              <label className="settings__label" htmlFor="set-lang">
+                {t("settings.language")}
+              </label>
+              <Select
+                id="set-lang"
+                label={t("settings.language")}
+                value={lang}
+                onChange={(choice) => void changeLang(choice)}
+                options={[
+                  { value: "system", label: t("settings.langSystem") },
+                  { value: "zh", label: "中文" },
+                  { value: "en", label: "English" },
+                ]}
+              />
             </div>
-            <Switch
-              checked={settings.autoCheckUpdate}
-              label={t("settings.autoUpdate")}
-              onChange={(v) => updateSettings({ autoCheckUpdate: v })}
-            />
-          </div>
-        </section>
+            <label className="settings__row settings__row--toggle">
+              <span className="settings__label">{t("settings.autoUpdate")}</span>
+              <Switch
+                checked={settings.autoCheckUpdate}
+                label={t("settings.autoUpdate")}
+                onChange={(v) => updateSettings({ autoCheckUpdate: v })}
+              />
+            </label>
+          </section>
+        </div>
       </div>
     </div>
   );

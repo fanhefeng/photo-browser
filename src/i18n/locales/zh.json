@@ -1,9 +1,11 @@
 {
   "welcome": {
-    "title": "本地照片浏览器",
-    "desc": "选一个文件夹，自动读取 EXIF、生成缩略图，按时间、相机、格式、定位分组浏览。",
+    "title": "照片浏览器",
     "open": "打开文件夹",
-    "formats": "支持 JPG · PNG · HEIC · MP4 等常见格式；暂不支持 RAW"
+    "subtitle": "浏览本地照片与视频",
+    "recent": "最近打开",
+    "clearRecent": "清除记录",
+    "noRecent": "打开过的文件夹会显示在这里"
   },
   "toolbar": {
     "open": "打开",
@@ -13,7 +15,8 @@
     "cancel": "取消",
     "sortAsc": "升序",
     "sortDesc": "降序",
-    "sortBy": "排序方式"
+    "sortBy": "排序方式",
+    "clearSearch": "清除搜索"
   },
   "sort": {
     "taken_at": "拍摄时间",
@@ -70,7 +73,8 @@
     "searchResults": "搜索结果",
     "folderEmpty": "这个文件夹还没有可浏览的照片或视频",
     "folderEmptyHint": "支持 JPG、PNG、HEIC 和 MP4 等常见格式，暂不支持 RAW。也可以重新扫描或打开其他文件夹。",
-    "resetFilters": "清除搜索与筛选"
+    "resetFilters": "清除搜索与筛选",
+    "previewUnavailable": "预览不可用"
   },
   "lightbox": {
     "prev": "上一张",
@@ -125,13 +129,10 @@
     "display": "显示",
     "thumbSize": "缩略图大小",
     "hoverInfo": "悬停显示文件信息",
-    "hoverInfoHint": "鼠标悬停缩略图时浮现文件名与拍摄日期",
     "general": "通用",
     "language": "语言",
     "langSystem": "跟随系统",
-    "autoUpdate": "启动时自动检查更新",
-    "autoUpdateHint": "仅正式版生效；也可随时在菜单里「检查更新…」",
-    "savedAutomatically": "更改会即时保存"
+    "autoUpdate": "启动时自动检查更新"
   },
   "banner": {
     "ffmpegMissing": "未检测到 ffmpeg / ffprobe，视频将无法生成封面与元数据。可通过 Homebrew 安装：brew install ffmpeg",

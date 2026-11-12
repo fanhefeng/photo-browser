@@ -23,10 +23,15 @@ import PhotoGrid from "./components/PhotoGrid";
 import Lightbox from "./components/Lightbox";
 import UpdateBanner from "./components/UpdateBanner";
 import SettingsDialog from "./components/SettingsDialog";
-import { CloseIcon, FolderIcon, GalleryGlyph, GearIcon } from "./components/icons";
+import { CloseIcon, GearIcon } from "./components/icons";
+import Welcome from "./components/Welcome";
+import { clearRecentFolders, readRecentFolders, rememberFolder } from "./recentFolders";
 
 export default function App() {
   const { t } = useTranslation();
+  const [recentFolders, setRecentFolders] = useState(readRecentFolders);
+  const scanIdRef = useRef(0);
+  useEffect(() => () => { scanIdRef.current += 1; }, []);
   const [rootPath, setRootPath] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>(emptyFilter());
   const [photos, setPhotos] = useState<MediaItem[]>([]);
@@ -170,6 +175,11 @@ export default function App() {
       return;
     }
     if (!dir) return;
+    openDirectory(dir);
+  };
+
+  const openDirectory = (dir: string) => {
+    if (scanning) return;
     ++reqIdRef.current;
     setRootPath(dir);
     setFilter(emptyFilter());
@@ -178,18 +188,26 @@ export default function App() {
     setFacets(null);
     setLightboxIndex(null);
     setTruncated(false);
-    startScan(dir);
+    startScan(dir, rootPath === null);
   };
 
-  const startScan = (dir: string) => {
+  const startScan = (dir: string, returnHomeOnError = false) => {
+    const scanId = ++scanIdRef.current;
     setError(null);
     setNotice(null);
     setScanning(true);
     setProgress({ done: 0, total: 0 });
-    scanDirectory(dir).catch((err) => {
+    scanDirectory(dir).then(() => {
+      if (scanId === scanIdRef.current) setRecentFolders(rememberFolder(dir));
+    }).catch((err) => {
+      if (scanId !== scanIdRef.current) return;
       setError(i18n.t("error.scanFailed", { msg: translateBackendError(err) }));
       setScanning(false);
       setProgress(null);
+      if (returnHomeOnError) {
+        ++reqIdRef.current;
+        setRootPath(null);
+      }
     });
   };
 
@@ -322,7 +340,13 @@ export default function App() {
           </main>
         </div>
       ) : (
-        <Welcome onOpen={handleOpen} />
+        <Welcome
+          recentFolders={recentFolders}
+          onOpen={handleOpen}
+          onOpenRecent={openDirectory}
+          onClearRecent={() => { clearRecentFolders(); setRecentFolders([]); }}
+          restoreFocus={error !== null}
+        />
       )}
 
       {lightboxIndex !== null && photos[lightboxIndex] && (
@@ -388,22 +412,6 @@ function Importing({
       <button className="btn btn--sm importing__cancel" onClick={onCancel}>
         {t("toolbar.cancel")}
       </button>
-    </div>
-  );
-}
-
-function Welcome({ onOpen }: { onOpen: () => void }) {
-  const { t } = useTranslation();
-  return (
-    <div className="welcome">
-      <GalleryGlyph />
-      <h1 className="welcome__title">{t("welcome.title")}</h1>
-      <p className="welcome__sub">{t("welcome.desc")}</p>
-      <button className="btn btn--primary btn--lg" onClick={onOpen}>
-        <FolderIcon size={17} />
-        {t("welcome.open")}
-      </button>
-      <p className="welcome__hint">{t("welcome.formats")}</p>
     </div>
   );
 }

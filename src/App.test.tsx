@@ -56,7 +56,8 @@ vi.mock("./components/PhotoGrid", () => ({
   ),
 }));
 
-import { getFacets, pickDirectory, queryPhotos } from "./api";
+import { getFacets, pickDirectory, queryPhotos, scanDirectory } from "./api";
+import { clearRecentFolders, readRecentFolders, rememberFolder } from "./recentFolders";
 import App from "./App";
 
 const item = (id: string): MediaItem => ({
@@ -113,9 +114,62 @@ async function openFolder(first: QueryResult) {
 
 describe("App 查询编排", () => {
   beforeEach(() => {
+    clearRecentFolders();
     vi.mocked(getFacets).mockResolvedValue(emptyFacets);
     vi.mocked(queryPhotos).mockReset();
     vi.mocked(pickDirectory).mockReset();
+    vi.mocked(scanDirectory).mockReset().mockResolvedValue(0);
+  });
+
+  it("最近目录可以直接重新打开而不再弹出目录选择", async () => {
+    rememberFolder("/Pictures/旅行");
+    render(<App />);
+    fireEvent.click(screen.getByTitle("/Pictures/旅行"));
+    await waitFor(() => expect(scanDirectory).toHaveBeenCalledWith("/Pictures/旅行"));
+    expect(pickDirectory).not.toHaveBeenCalled();
+    await waitFor(() => expect(readRecentFolders()[0]).toBe("/Pictures/旅行"));
+  });
+
+  it("新目录只在扫描成功后进入最近记录，卸载后不写迟到的结果", async () => {
+    let finish!: (count: number) => void;
+    vi.mocked(pickDirectory).mockResolvedValue("/Pictures/新目录");
+    vi.mocked(scanDirectory).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const view = render(<App />);
+    fireEvent.click(screen.getByText("打开文件夹"));
+    await waitFor(() => expect(scanDirectory).toHaveBeenCalledWith("/Pictures/新目录"));
+    expect(readRecentFolders()).toEqual([]);
+    await act(async () => { finish(0); });
+    expect(readRecentFolders()).toEqual(["/Pictures/新目录"]);
+    view.unmount();
+
+    clearRecentFolders();
+    const next = render(<App />);
+    fireEvent.click(screen.getByText("打开文件夹"));
+    await waitFor(() => expect(scanDirectory).toHaveBeenCalledTimes(2));
+    next.unmount();
+    await act(async () => { finish(0); });
+    expect(readRecentFolders()).toEqual([]);
+  });
+
+  it("失效的最近目录返回启动页并提示原因，失败路径不加入记录", async () => {
+    rememberFolder("/Pictures/原目录");
+    vi.mocked(pickDirectory).mockResolvedValue("/missing");
+    vi.mocked(scanDirectory).mockRejectedValue("backend.notDirectory");
+    render(<App />);
+    fireEvent.click(screen.getByText("打开文件夹"));
+    expect((await screen.findByRole("alert")).textContent).toContain("有效目录");
+    expect(screen.getByRole("heading", { name: "照片浏览器" })).toBeTruthy();
+    expect(readRecentFolders()).toEqual(["/Pictures/原目录"]);
+  });
+
+  it("清除最近记录不触发扫描或目录选择", () => {
+    rememberFolder("/Pictures/旅行");
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "清除记录" }));
+    expect(screen.queryByTitle("/Pictures/旅行")).toBeNull();
+    expect(readRecentFolders()).toEqual([]);
+    expect(scanDirectory).not.toHaveBeenCalled();
+    expect(pickDirectory).not.toHaveBeenCalled();
   });
 
   it("慢的旧响应后到时不覆盖新结果", async () => {
@@ -231,7 +285,8 @@ describe("App 查询编排", () => {
       groups: [{ dim: "kind", items: [{ key: "photo", count: 1 }, { key: "video", count: 1 }] }],
     });
     await openFolder(result(["a", "b"]));
-    fireEvent.change(screen.getByLabelText("排序方式"), { target: { value: "filename" } });
+    fireEvent.click(screen.getByRole("combobox", { name: "排序方式" }));
+    fireEvent.click(screen.getByRole("option", { name: "文件名" }));
     fireEvent.click(screen.getByRole("button", { name: /^照片\s*1$/ }));
     fireEvent.change(screen.getByPlaceholderText("按文件名搜索…"), { target: { value: "a" } });
     await waitFor(() => expect(queryPhotos).toHaveBeenLastCalledWith(expect.objectContaining({

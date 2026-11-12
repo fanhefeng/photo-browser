@@ -25,3 +25,6 @@ src-tauri/binaries/
 *.njsproj
 *.sln
 *.sw?
+
+# Isolated, source-built FFmpeg artifacts
+.ffmpeg-build/

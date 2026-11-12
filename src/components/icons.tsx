@@ -126,29 +126,3 @@ export const TrashIcon = ({ size = 15, className }: IconProps) => (
     <path d="M14 11v6" />
   </svg>
 );
-
-// 欢迎屏图形：两张错落层叠的照片，前景一张含山与太阳（图库意象）。
-// 颜色走 CSS 变量（见 .glyph-* 样式），保持暗色克制、仅太阳为品牌色。
-export const GalleryGlyph = ({ size = 84 }: { size?: number }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 96 96"
-    fill="none"
-    aria-hidden
-    className="welcome__glyph"
-  >
-    <rect
-      className="glyph-card-back"
-      x="23"
-      y="28"
-      width="50"
-      height="42"
-      rx="7"
-      transform="rotate(-9 48 49)"
-    />
-    <rect className="glyph-card-front" x="25" y="31" width="50" height="42" rx="7" />
-    <circle className="glyph-sun" cx="39" cy="45" r="5" />
-    <path className="glyph-hill" d="M29 65 L43 51 L52 59 L60 52 L71 65" />
-  </svg>
-);
