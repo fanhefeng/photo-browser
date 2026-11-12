@@ -31,6 +31,15 @@ export const FolderIcon = ({ size = 15, className }: IconProps) => (
   </svg>
 );
 
+export const LibraryIcon = ({ size = 15, className }: IconProps) => (
+  <svg {...svgProps(size)} className={className}>
+    <rect x="3" y="3" width="7" height="7" rx="1.5" />
+    <rect x="14" y="3" width="7" height="7" rx="1.5" />
+    <rect x="3" y="14" width="7" height="7" rx="1.5" />
+    <rect x="14" y="14" width="7" height="7" rx="1.5" />
+  </svg>
+);
+
 export const RescanIcon = ({ size = 15, className }: IconProps) => (
   <svg {...svgProps(size)} className={className}>
     <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
@@ -51,18 +60,6 @@ export const ArrowUpIcon = ({ size = 15, className }: IconProps) => (
   <svg {...svgProps(size)} className={className}>
     <path d="M12 19V5" />
     <path d="m5 12 7-7 7 7" />
-  </svg>
-);
-
-export const ChevronLeftIcon = ({ size = 15, className }: IconProps) => (
-  <svg {...svgProps(size)} className={className}>
-    <path d="m15 18-6-6 6-6" />
-  </svg>
-);
-
-export const ChevronRightIcon = ({ size = 15, className }: IconProps) => (
-  <svg {...svgProps(size)} className={className}>
-    <path d="m9 18 6-6-6-6" />
   </svg>
 );
 

@@ -3,7 +3,7 @@
     "title": "本地照片浏览器",
     "desc": "选一个文件夹，自动读取 EXIF、生成缩略图，按时间、相机、格式、定位分组浏览。",
     "open": "打开文件夹",
-    "formats": "支持 JPG · HEIC · RAW · MP4 等常见格式"
+    "formats": "支持 JPG · PNG · HEIC · MP4 等常见格式；暂不支持 RAW"
   },
   "toolbar": {
     "open": "打开",
@@ -12,7 +12,8 @@
     "searchPlaceholder": "按文件名搜索…",
     "cancel": "取消",
     "sortAsc": "升序",
-    "sortDesc": "降序"
+    "sortDesc": "降序",
+    "sortBy": "排序方式"
   },
   "sort": {
     "taken_at": "拍摄时间",
@@ -26,7 +27,9 @@
   "sidebar": {
     "notLoaded": "尚未加载照片",
     "count_other": "{{count}} 张",
-    "showAll": "显示全部"
+    "showAll": "显示全部",
+    "library": "资料库",
+    "allMedia": "全部媒体"
   },
   "facet": {
     "dim": {
@@ -36,7 +39,10 @@
       "format": "格式",
       "gps": "定位"
     },
-    "kind": { "photo": "照片", "video": "视频" },
+    "kind": {
+      "photo": "照片",
+      "video": "视频"
+    },
     "format": {
       "raw": "RAW",
       "jpeg": "JPEG",
@@ -45,17 +51,26 @@
       "video": "视频",
       "other": "其它"
     },
-    "gps": { "has": "有定位", "none": "无定位" },
+    "gps": {
+      "has": "有定位",
+      "none": "无定位"
+    },
     "year": "{{year}} 年",
     "unknown": "未知"
   },
   "grid": {
-    "empty": "没有符合条件的照片",
-    "emptyHint": "试试切换左侧分类，或点「显示全部」",
+    "empty": "没有符合条件的照片或视频",
+    "emptyHint": "清除搜索与分类筛选，查看当前文件夹的全部内容。",
     "view": "查看 {{name}}",
     "importing": "正在导入照片…",
     "importingScan": "正在扫描文件…",
-    "importingCount": "已处理 {{done}} / {{total}}"
+    "importingCount": "已处理 {{done}} / {{total}}",
+    "resultCount_other": "{{count}} 个项目",
+    "clearFilters": "清除筛选",
+    "searchResults": "搜索结果",
+    "folderEmpty": "这个文件夹还没有可浏览的照片或视频",
+    "folderEmptyHint": "支持 JPG、PNG、HEIC 和 MP4 等常见格式，暂不支持 RAW。也可以重新扫描或打开其他文件夹。",
+    "resetFilters": "清除搜索与筛选"
   },
   "lightbox": {
     "prev": "上一张",
@@ -115,7 +130,8 @@
     "language": "语言",
     "langSystem": "跟随系统",
     "autoUpdate": "启动时自动检查更新",
-    "autoUpdateHint": "仅正式版生效；也可随时在菜单里「检查更新…」"
+    "autoUpdateHint": "仅正式版生效；也可随时在菜单里「检查更新…」",
+    "savedAutomatically": "更改会即时保存"
   },
   "banner": {
     "ffmpegMissing": "未检测到 ffmpeg / ffprobe，视频将无法生成封面与元数据。可通过 Homebrew 安装：brew install ffmpeg",

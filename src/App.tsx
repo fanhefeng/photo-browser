@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
 import i18n, { translateBackendError } from "./i18n";
@@ -18,7 +18,7 @@ import {
   videoSupport,
 } from "./api";
 import Toolbar from "./components/Toolbar";
-import Sidebar from "./components/Sidebar";
+import Sidebar, { facetLabel } from "./components/Sidebar";
 import PhotoGrid from "./components/PhotoGrid";
 import Lightbox from "./components/Lightbox";
 import UpdateBanner from "./components/UpdateBanner";
@@ -113,16 +113,17 @@ export default function App() {
   }, []);
 
   // —— 拉取照片列表 + 分面（带防抖，避免连续勾选时频繁查询）——
-  const debounceRef = useRef<number | undefined>(undefined);
   // 请求序号：只采纳最新一次请求的响应，丢弃在途的过期响应（防乱序覆盖）
   const reqIdRef = useRef(0);
   // photos 的实时镜像：列表刷新时按 id 重定位大图，避免闭包读到旧列表
   const photosRef = useRef(photos);
   photosRef.current = photos;
-  const refresh = useCallback(() => {
-    window.clearTimeout(debounceRef.current);
-    debounceRef.current = window.setTimeout(async () => {
-      const myId = ++reqIdRef.current;
+  useEffect(() => {
+    // 新意图立即使旧请求过期，不能等到防抖结束才作废：旧目录的响应
+    // 可能恰好在这 120ms 内回来，把已清空的新目录重新填成旧照片。
+    const myId = ++reqIdRef.current;
+    if (!rootPath) return;
+    const timer = window.setTimeout(async () => {
       const f = { ...filter, root: rootPath ?? undefined };
       try {
         const [list, fc] = await Promise.all([
@@ -149,12 +150,11 @@ export default function App() {
         setError(i18n.t("error.loadFailed", { msg: String(e) }));
       }
     }, 120);
-  }, [filter, rootPath]);
-
-  useEffect(() => {
-    if (rootPath) refresh();
-    return () => window.clearTimeout(debounceRef.current);
-  }, [filter, rootPath, refresh, reloadKey]);
+    return () => {
+      window.clearTimeout(timer);
+      ++reqIdRef.current;
+    };
+  }, [filter, rootPath, reloadKey]);
 
   // —— 选目录并扫描 ——
   const handleOpen = async () => {
@@ -170,12 +170,14 @@ export default function App() {
       return;
     }
     if (!dir) return;
+    ++reqIdRef.current;
     setRootPath(dir);
     setFilter(emptyFilter());
     // 切换目录时清空上一目录的网格/分面与大图，避免短暂残留与误点
     setPhotos([]);
     setFacets(null);
     setLightboxIndex(null);
+    setTruncated(false);
     startScan(dir);
   };
 
@@ -193,6 +195,14 @@ export default function App() {
 
   const patchFilter = (patch: Partial<Filter>) =>
     setFilter((f) => ({ ...f, ...patch }));
+  const hasFilters = Boolean(filter.text?.trim() || (filter.group_dim && filter.group_key));
+  const clearFilters = () =>
+    patchFilter({ text: "", group_dim: undefined, group_key: undefined });
+  const collectionTitle = filter.text?.trim()
+    ? t("grid.searchResults")
+    : filter.group_dim && filter.group_key
+      ? facetLabel(filter.group_dim, filter.group_key, t)
+      : t("sidebar.allMedia");
 
   // 拖拽调整侧边栏宽度：限制在 180–480px，松手时记忆
   const startResize = (startX: number) => {
@@ -244,6 +254,7 @@ export default function App() {
             className="btn btn--icon"
             onClick={() => setSettingsOpen(true)}
             title={t("settings.title")}
+            aria-label={t("settings.title")}
           >
             <GearIcon />
           </button>
@@ -281,10 +292,32 @@ export default function App() {
             onMouseDown={(e) => startResize(e.clientX)}
           />
           <main className="content">
+            <div className="collection-head">
+              <div className="collection-head__title">
+                <h1>{collectionTitle}</h1>
+                <span className="collection-head__count" role="status" aria-live="polite">
+                  {scanning && photos.length === 0
+                    ? t("grid.importing")
+                    : t("grid.resultCount", { count: photos.length })}
+                </span>
+              </div>
+              {hasFilters && (
+                <button className="btn btn--sm" onClick={clearFilters}>
+                  {t("grid.clearFilters")}
+                </button>
+              )}
+            </div>
             {scanning && photos.length === 0 ? (
               <Importing progress={progress} onCancel={() => cancelScan().catch(() => {})} />
             ) : (
-              <PhotoGrid photos={photos} onSelect={setLightboxIndex} />
+              <PhotoGrid
+                photos={photos}
+                onSelect={setLightboxIndex}
+                filtered={hasFilters}
+                onResetFilters={clearFilters}
+                onOpenFolder={handleOpen}
+                onRescan={() => startScan(rootPath)}
+              />
             )}
           </main>
         </div>

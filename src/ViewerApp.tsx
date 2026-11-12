@@ -29,8 +29,6 @@ import {
 } from "./api";
 import { DetailPanel, VideoStage, ZoomBar, zoomedImageStyle } from "./components/media";
 import {
-  ChevronLeftIcon,
-  ChevronRightIcon,
   CloseIcon,
   ExpandIcon,
   FitIcon,
@@ -282,7 +280,7 @@ export default function ViewerApp() {
               onClick={() => setIndex(index - 1)}
               aria-label={t("lightbox.prev")}
             >
-              <ChevronLeftIcon size={24} />
+              {t("lightbox.prev")}
             </button>
           )}
 
@@ -306,7 +304,7 @@ export default function ViewerApp() {
               onClick={() => setIndex(index + 1)}
               aria-label={t("lightbox.next")}
             >
-              <ChevronRightIcon size={24} />
+              {t("lightbox.next")}
             </button>
           )}
         </div>

@@ -14,7 +14,6 @@ import { isWebDisplayable } from "../utils";
 import { useZoom } from "../hooks/useZoom";
 import { needsSharperSource, useImageFit } from "../hooks/useImageFit";
 import { DetailPanel, VideoStage, ZoomBar, zoomedImageStyle } from "./media";
-import { ChevronLeftIcon, ChevronRightIcon } from "./icons";
 
 interface Props {
   photos: MediaItem[];
@@ -66,7 +65,7 @@ export default function Lightbox({ photos, index, onClose, onNavigate }: Props) 
             onClick={() => onNavigate(index - 1)}
             aria-label={t("lightbox.prev")}
           >
-            <ChevronLeftIcon size={26} />
+            {t("lightbox.prev")}
           </button>
         )}
 
@@ -82,7 +81,7 @@ export default function Lightbox({ photos, index, onClose, onNavigate }: Props) 
             onClick={() => onNavigate(index + 1)}
             aria-label={t("lightbox.next")}
           >
-            <ChevronRightIcon size={26} />
+            {t("lightbox.next")}
           </button>
         )}
       </div>

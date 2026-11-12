@@ -145,6 +145,41 @@ describe("App 查询编排", () => {
     expect(grid()).toBe("new.jpg");
   });
 
+  it("新搜索尚在防抖等待时，旧响应也不能回填", async () => {
+    await openFolder(result(["a"]));
+    let releaseSlow!: (v: QueryResult) => void;
+    vi.mocked(queryPhotos)
+      .mockImplementationOnce(() => new Promise<QueryResult>((resolve) => { releaseSlow = resolve; }))
+      .mockResolvedValueOnce(result(["new"]));
+
+    const search = screen.getByPlaceholderText("按文件名搜索…");
+    fireEvent.change(search, { target: { value: "x" } });
+    await waitFor(() => expect(queryPhotos).toHaveBeenCalledTimes(1));
+    fireEvent.change(search, { target: { value: "xy" } });
+    await act(async () => { releaseSlow(result(["stale"], true)); });
+
+    // 第二次请求还未发出：此处正是旧实现的 120ms 漏洞。
+    expect(queryPhotos).toHaveBeenCalledTimes(1);
+    expect(grid()).toBe("a.jpg");
+    expect(screen.queryByRole("alert")).toBeNull();
+    await waitFor(() => expect(grid()).toBe("new.jpg"));
+  });
+
+  it("切换目录立即作废在途查询与旧截断提示", async () => {
+    await openFolder(result(["a"], true));
+    let releaseSlow!: (v: QueryResult) => void;
+    vi.mocked(queryPhotos).mockImplementationOnce(() => new Promise<QueryResult>((resolve) => { releaseSlow = resolve; }));
+    fireEvent.change(screen.getByPlaceholderText("按文件名搜索…"), { target: { value: "x" } });
+    await waitFor(() => expect(queryPhotos).toHaveBeenCalledTimes(1));
+    vi.mocked(pickDirectory).mockResolvedValue("/new-folder");
+    await act(async () => { fireEvent.click(screen.getByText("打开", { exact: true })); });
+    await act(async () => { releaseSlow(result(["stale"], true)); });
+
+    expect(screen.queryByLabelText("查看 stale.jpg")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getAllByText("正在导入照片…").length).toBeGreaterThan(0);
+  });
+
   it("列表被换掉后大图按 id 重定位，不指向另一张照片", async () => {
     await openFolder(result(["a", "b", "c"]));
 
@@ -188,5 +223,25 @@ describe("App 查询编排", () => {
   it("没截断就不打扰用户", async () => {
     await openFolder(result(["a", "b"], false));
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("清除筛选同时恢复搜索和分类，并保留排序选择", async () => {
+    vi.mocked(getFacets).mockResolvedValue({
+      total: 2,
+      groups: [{ dim: "kind", items: [{ key: "photo", count: 1 }, { key: "video", count: 1 }] }],
+    });
+    await openFolder(result(["a", "b"]));
+    fireEvent.change(screen.getByLabelText("排序方式"), { target: { value: "filename" } });
+    fireEvent.click(screen.getByRole("button", { name: /^照片\s*1$/ }));
+    fireEvent.change(screen.getByPlaceholderText("按文件名搜索…"), { target: { value: "a" } });
+    await waitFor(() => expect(queryPhotos).toHaveBeenLastCalledWith(expect.objectContaining({
+      text: "a", group_dim: "kind", group_key: "photo", sort_by: "filename",
+    })));
+
+    fireEvent.click(screen.getByRole("button", { name: "清除筛选" }));
+    await waitFor(() => expect(queryPhotos).toHaveBeenLastCalledWith(expect.objectContaining({
+      text: "", group_dim: undefined, group_key: undefined, sort_by: "filename",
+    })));
+    expect(screen.getByRole("button", { name: /^全部媒体\s*2$/ }).getAttribute("aria-pressed")).toBe("true");
   });
 });

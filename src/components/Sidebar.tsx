@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { Facets, Filter } from "../types";
+import { LibraryIcon } from "./icons";
 
 interface Props {
   facets: Facets | null;
@@ -10,7 +11,7 @@ interface Props {
 }
 
 /** 按维度 + 分类 key 翻译标签：camera 是品牌名（数据值）不翻译，其余走 i18n */
-function facetLabel(dim: string, key: string, t: TFunction): string {
+export function facetLabel(dim: string, key: string, t: TFunction): string {
   if (key === "unknown") return t("facet.unknown");
   switch (dim) {
     case "kind":
@@ -43,12 +44,12 @@ export default function Sidebar({ facets, filter, onChange, width }: Props) {
     );
   }
 
-  const hasActive = !!(filter.group_dim && filter.group_key);
-  const showAll = () => onChange({ group_dim: undefined, group_key: undefined });
+  const hasActive = Boolean(filter.text?.trim() || (filter.group_dim && filter.group_key));
+  const showAll = () => onChange({ text: undefined, group_dim: undefined, group_key: undefined });
 
   const select = (dim: string, key: string) => {
     if (filter.group_dim === dim && filter.group_key === key) {
-      showAll();
+      onChange({ group_dim: undefined, group_key: undefined });
     } else {
       onChange({ group_dim: dim, group_key: key });
     }
@@ -58,17 +59,19 @@ export default function Sidebar({ facets, filter, onChange, width }: Props) {
   const groups = facets.groups.filter((g) => g.items.length > 1);
 
   return (
-    <aside className="sidebar" style={{ width }}>
+    <aside className="sidebar" style={{ width }} aria-label={t("sidebar.library")}>
       <div className="sidebar__head">
-        <span className="sidebar__total">
-          {t("sidebar.count", { count: facets.total })}
-        </span>
-        {hasActive && (
-          <button className="link-btn" onClick={showAll}>
-            {t("sidebar.showAll")}
-          </button>
-        )}
+        <span className="sidebar__total">{t("sidebar.library")}</span>
       </div>
+      <button
+        className={`pill pill--library ${!hasActive ? "pill--on" : ""}`}
+        aria-pressed={!hasActive}
+        onClick={showAll}
+      >
+        <LibraryIcon size={17} />
+        <span className="pill__label">{t("sidebar.allMedia")}</span>
+        <span className="pill__count">{facets.total.toLocaleString()}</span>
+      </button>
 
       {groups.map((g) => {
         const dimActive = filter.group_dim === g.dim;

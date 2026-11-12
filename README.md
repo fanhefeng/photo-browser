@@ -4,6 +4,11 @@
 
 🌐 **官网**：<https://fanhefeng.github.io/photo-browser/> · 📦 **下载**：[最新 Release](https://github.com/fanhefeng/photo-browser/releases/latest)
 
+
+![Photo Browser 实际应用画面](site/assets/library.webp)
+
+适用于 **Apple Silicon（M 系列）Mac，macOS 11 及以上**。当前没有 Intel、Windows 或 Linux 安装包；暂不支持 RAW。首次安装的系统放行说明见下文。
+
 ## 功能
 
 - **照片 + 视频**：递归扫描，照片识别 JPG/PNG/HEIC/TIFF/WebP 等；视频识别 MP4/MOV/MKV/WebM 等

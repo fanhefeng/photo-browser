@@ -47,6 +47,7 @@ export default function Toolbar({
     progress && progress.total > 0
       ? Math.round((progress.done / progress.total) * 100)
       : 0;
+  const folderName = rootPath?.split(/[\\/]/).filter(Boolean).pop() || rootPath;
 
   return (
     <header
@@ -66,19 +67,20 @@ export default function Toolbar({
           title={t("toolbar.openTitle")}
         >
           <FolderIcon />
-          {t("toolbar.open")}
+          <span>{t("toolbar.open")}</span>
         </button>
         {rootPath && (
           <>
             <span className="toolbar__sep" />
-            <span className="toolbar__path" title={rootPath}>
-              {rootPath}
+            <span className="toolbar__path" title={rootPath} dir="auto">
+              {folderName}
             </span>
             <button
               className="btn btn--icon"
               onClick={onRescan}
               disabled={scanning}
               title={t("toolbar.rescan")}
+              aria-label={t("toolbar.rescan")}
             >
               <RescanIcon className={scanning ? "spin" : undefined} />
             </button>
@@ -100,7 +102,7 @@ export default function Toolbar({
         </div>
       ) : (
         <div className="toolbar__right">
-          <div className="search">
+          <label className="search">
             <SearchIcon className="search__icon" />
             <input
               className="search__input"
@@ -110,10 +112,11 @@ export default function Toolbar({
               value={filter.text ?? ""}
               onChange={(e) => onChange({ text: e.target.value })}
             />
-          </div>
+          </label>
           <div className="sort">
             <select
               className="select"
+              aria-label={t("toolbar.sortBy")}
               value={filter.sort_by}
               onChange={(e) => onChange({ sort_by: e.target.value as SortBy })}
             >
@@ -126,6 +129,7 @@ export default function Toolbar({
             <button
               className="btn btn--icon"
               title={filter.sort_dir === "desc" ? t("toolbar.sortDesc") : t("toolbar.sortAsc")}
+              aria-label={filter.sort_dir === "desc" ? t("toolbar.sortDesc") : t("toolbar.sortAsc")}
               onClick={() =>
                 onChange({ sort_dir: filter.sort_dir === "desc" ? "asc" : "desc" })
               }
@@ -138,6 +142,7 @@ export default function Toolbar({
             className="btn btn--icon"
             onClick={onSettings}
             title={t("settings.title")}
+            aria-label={t("settings.title")}
           >
             <GearIcon />
           </button>

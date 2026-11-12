@@ -90,34 +90,62 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
         tabIndex={-1}
       >
         <div className="settings__head">
-          <h2 className="settings__title">{t("settings.title")}</h2>
-          <button className="btn btn--icon" onClick={onClose} title={t("settings.close")}>
+          <div>
+            <h2 className="settings__title">{t("settings.title")}</h2>
+            <p className="settings__hint">{t("settings.savedAutomatically")}</p>
+          </div>
+          <button
+            className="btn btn--icon"
+            onClick={onClose}
+            title={t("settings.close")}
+            aria-label={t("settings.close")}
+          >
             <CloseIcon />
           </button>
         </div>
 
         <section className="settings__section">
           <h3 className="settings__section-title">{t("settings.appearance")}</h3>
-          <div className="theme-cards" role="radiogroup" aria-label={t("settings.appearance")}>
+          <div className="theme-cards" role="group" aria-label={t("settings.appearance")}>
             {THEMES.map((th) => (
-              <button
+              <label
                 key={th.id}
-                role="radio"
-                aria-checked={settings.theme === th.id}
                 className={`theme-card ${settings.theme === th.id ? "theme-card--on" : ""}`}
                 data-theme={th.id}
-                onClick={() => updateSettings({ theme: th.id })}
               >
+                <input
+                  className="theme-card__input"
+                  type="radio"
+                  name="theme"
+                  value={th.id}
+                  checked={settings.theme === th.id}
+                  onChange={() => updateSettings({ theme: th.id })}
+                />
                 <span className="tp" aria-hidden>
-                  <span className="tp__side" />
+                  <span className="tp__side">
+                    <span /><span /><span />
+                  </span>
                   <span className="tp__main">
-                    <span className="tp__dot" />
-                    <span className="tp__line" />
-                    <span className="tp__line tp__line--short" />
+                    <span /><span /><span /><span />
                   </span>
                 </span>
-                <span className="theme-card__name">{t(`settings.theme.${th.id}`)}</span>
-              </button>
+                <span className="theme-card__name">
+                  {t(`settings.theme.${th.id}`)}
+                  <span className="theme-card__mark" aria-hidden>
+                    {settings.theme === th.id && (
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path
+                          d="m2.5 6 2.3 2.3 4.7-4.6"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    )}
+                  </span>
+                </span>
+              </label>
             ))}
           </div>
         </section>

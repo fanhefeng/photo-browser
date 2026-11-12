@@ -4,10 +4,15 @@ import { useTranslation } from "react-i18next";
 import type { MediaItem } from "../types";
 import { thumbUrl } from "../api";
 import { formatDateShort, formatDuration } from "../utils";
+import { FolderIcon, SearchIcon } from "./icons";
 
 interface Props {
   photos: MediaItem[];
   onSelect: (index: number) => void;
+  filtered: boolean;
+  onResetFilters: () => void;
+  onOpenFolder: () => void;
+  onRescan: () => void;
 }
 
 // Virtuoso 需要稳定的容器组件来承载 grid 布局（用库的类型，避免 any）
@@ -28,7 +33,7 @@ const gridComponents: GridComponents = {
   ),
 };
 
-export default function PhotoGrid({ photos, onSelect }: Props) {
+export default function PhotoGrid({ photos, onSelect, filtered, onResetFilters, onOpenFolder, onRescan }: Props) {
   const { t } = useTranslation();
   const itemContent = useCallback(
     (index: number) => {
@@ -77,8 +82,19 @@ export default function PhotoGrid({ photos, onSelect }: Props) {
   if (photos.length === 0) {
     return (
       <div className="grid-empty">
-        <p className="grid-empty__title">{t("grid.empty")}</p>
-        <span className="grid-empty__hint">{t("grid.emptyHint")}</span>
+        {filtered ? <SearchIcon size={28} /> : <FolderIcon size={28} />}
+        <p className="grid-empty__title">{t(filtered ? "grid.empty" : "grid.folderEmpty")}</p>
+        <span className="grid-empty__hint">{t(filtered ? "grid.emptyHint" : "grid.folderEmptyHint")}</span>
+        <div className="grid-empty__actions">
+          {filtered ? (
+            <button className="btn" onClick={onResetFilters}>{t("grid.resetFilters")}</button>
+          ) : (
+            <>
+              <button className="btn" onClick={onOpenFolder}>{t("welcome.open")}</button>
+              <button className="btn" onClick={onRescan}>{t("toolbar.rescan")}</button>
+            </>
+          )}
+        </div>
       </div>
     );
   }

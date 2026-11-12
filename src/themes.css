@@ -9,14 +9,14 @@
    查看器窗口（html.viewer-window，App.css）不参与换肤，固定深色玻璃。
    —————————————————————————————————————————————————————————————— */
 
-/* —— 经典浅色（默认）：Apple Photos 式纯白 + 系统蓝 —— */
+/* —— 经典浅色（默认）：白色画布 + 冷灰窗口底 + 系统蓝 —— */
 :root,
 [data-theme="light"] {
   color-scheme: light;
 
-  /* 表面层次（纯白实底；面板靠边框+阴影分层） */
+  /* 表面层次：窗口底与白色画布分层，避免并列面板重复投影 */
   --surface: #ffffff; /* 面板实底（侧栏 + 内容） */
-  --bg: #ffffff; /* 窗口底 */
+  --bg: #f5f6f8; /* 窗口底 */
   --bg-elev: var(--surface); /* 控件背景 */
   --bg-elev2: var(--surface); /* 输入/下拉背景 */
   --bg-hover: rgba(0, 0, 0, 0.05); /* 控件 hover 加深 */
@@ -28,15 +28,16 @@
 
   /* 文本（Apple 近黑 + 灰阶，均达 WCAG AA） */
   --text: #1d1d1f;
-  --text-dim: rgba(0, 0, 0, 0.56);
-  --text-faint: rgba(0, 0, 0, 0.42);
+  --text-dim: #59616e;
+  --text-faint: #69717e;
   --on-accent: #fff;
 
   /* 品牌色：Apple 系统蓝（--accent-rgb 供 rgba() 复用） */
-  --accent-rgb: 0, 122, 255;
+  --accent-rgb: 10, 101, 218;
   --accent: rgb(var(--accent-rgb));
+  --accent-ink: #0a58c3; /* 淡色选中底上的文字，保持小字号对比度 */
   --accent-hover: #0071e3;
-  --accent-soft: rgba(var(--accent-rgb), 0.14); /* 侧栏选中底 */
+  --accent-soft: rgba(var(--accent-rgb), 0.09); /* 侧栏选中底 */
   --ring: 0 0 0 3px rgba(var(--accent-rgb), 0.3); /* 键盘 focus 环 */
 
   /* 语义状态色 */
@@ -80,13 +81,14 @@
   --hairline: rgba(46, 38, 32, 0.16);
 
   --text: #2e2620;
-  --text-dim: rgba(46, 38, 32, 0.62);
-  --text-faint: rgba(46, 38, 32, 0.46);
+  --text-dim: #6d6051;
+  --text-faint: #746652;
   --on-accent: #fff8eb;
 
   /* 山峦蓝（icon 的 #4E8AC9 按奶油底加深到 AA 对比度） */
   --accent-rgb: 58, 110, 168;
   --accent: rgb(var(--accent-rgb));
+  --accent-ink: #305d91;
   --accent-hover: #33619b;
   --accent-soft: rgba(var(--accent-rgb), 0.14);
   --ring: 0 0 0 3px rgba(var(--accent-rgb), 0.3);
@@ -130,13 +132,14 @@
   --hairline: rgba(255, 255, 255, 0.1);
 
   --text: #f5f5f7;
-  --text-dim: rgba(255, 255, 255, 0.6);
-  --text-faint: rgba(255, 255, 255, 0.44);
-  --on-accent: #fff;
+  --text-dim: #b0b0b8;
+  --text-faint: #96969f;
+  --on-accent: #101a28;
 
   /* 深底上提亮一档的系统蓝 */
   --accent-rgb: 64, 156, 255;
   --accent: rgb(var(--accent-rgb));
+  --accent-ink: #409cff;
   --accent-hover: #2f8cf0;
   --accent-soft: rgba(var(--accent-rgb), 0.22);
   --ring: 0 0 0 3px rgba(var(--accent-rgb), 0.4);
