@@ -167,9 +167,6 @@ export default function Select<T extends string>({
         onBlur={() => setOpen(false)}
       >
         <span>{options[selected]?.label}</span>
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-          <path d="m3 4.5 3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
       </button>
       {open && (
         <div ref={listRef} id={listId} role="listbox" aria-label={label}

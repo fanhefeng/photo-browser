@@ -57,10 +57,10 @@ export default function Toolbar({
     <header
       className="toolbar"
       onMouseDown={(e) => {
-        // 仅工具栏空白区（非按钮/输入等子元素）才拖动窗口
-        if (e.target === e.currentTarget) {
-          dragWindow(e.nativeEvent.offsetX, e.buttons);
-        }
+        // 工具组容器也占据空白区域；只排除真正的控件及其内部元素。
+        if (!(e.target instanceof Element) || e.target.closest("button, .search, .select-control")) return;
+        // offsetX 相对命中的子元素，不能用它判断窗口左侧的红绿灯避让区。
+        dragWindow(e.clientX - e.currentTarget.getBoundingClientRect().left, e.buttons);
       }}
     >
       <div className="toolbar__left">
