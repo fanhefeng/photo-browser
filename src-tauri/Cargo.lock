@@ -2848,7 +2848,7 @@ dependencies = [
 
 [[package]]
 name = "photo-browser"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "blake3",
  "chrono",
