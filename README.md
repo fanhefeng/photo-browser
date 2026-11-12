@@ -38,6 +38,24 @@
 
 系统要求：Apple Silicon（M 系列）Mac，macOS 11 Big Sur 及以上。
 
+### 核对下载文件的 SHA-256
+
+以 **v0.5.3 的 `photo-browser_0.5.3_aarch64.dmg`** 为例，在 macOS 终端运行（如保存位置不同，请修改路径）：
+
+```bash
+shasum -a 256 "$HOME/Downloads/photo-browser_0.5.3_aarch64.dmg"
+```
+
+输出开头的 64 位十六进制值应与下面完全一致：
+
+```text
+4d8f04f7a19123e091d73fd7196081a52ec89fdb2366a9254bc04b62c7cfec23
+```
+
+此值来自 [v0.5.3 的 GitHub Release 元数据](https://api.github.com/repos/fanhefeng/photo-browser/releases/tags/v0.5.3)：在 `assets` 中找到同名 DMG，查看其 `digest` 字段，比较时去掉 `sha256:` 前缀。**其他版本或文件不能使用上述值**；应打开对应版本的 Release 元数据（将链接中的 `v0.5.3` 换成所下载的标签），按完整文件名查找摘要。若摘要缺失或不一致，请停止安装，重新确认版本与下载来源，不要通过清除隔离标记解决。
+
+摘要一致只说明文件与 GitHub 上该发布附件的记录一致，不能独立证明发布者身份、软件安全，也不等同于 Apple 签名或公证。
+
 ## 依赖
 
 - **视频功能依赖 `ffmpeg` / `ffprobe`**（封面抽帧 + 元数据）。Release 版 dmg 已内置，无需安装；从源码运行（`pnpm tauri dev`）时需自行安装：`brew install ffmpeg`。未安装时照片功能不受影响，应用会顶部提示
