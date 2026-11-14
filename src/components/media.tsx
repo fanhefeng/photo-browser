@@ -2,19 +2,14 @@
 // 视频播放、缩放控制胶囊、文件信息面板。
 
 import type { CSSProperties, ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { MediaItem } from "../types";
 import { openExternal, revealInFinder } from "../api";
 import type { ImageFit } from "../hooks/useImageFit";
 import type { ZoomState } from "../hooks/useZoom";
 import { CloseIcon, FitIcon } from "./icons";
-import {
-  formatDate,
-  formatDuration,
-  formatExposure,
-  formatSize,
-} from "../utils";
+import { formatDate, formatDuration, formatExposure, formatSize } from "../utils";
 
 /**
  * 缩放态大图的内联样式。放大走**真实布局尺寸**（width/height = 适应尺寸 × scale），
@@ -90,11 +85,19 @@ export function ZoomBar({
       onDoubleClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <button className="zoom-bar__btn" onClick={() => setScale(1 / 1.4)} aria-label={t("lightbox.zoomOut")}>
+      <button
+        className="zoom-bar__btn"
+        onClick={() => setScale(1 / 1.4)}
+        aria-label={t("lightbox.zoomOut")}
+      >
         −
       </button>
       <span className="zoom-bar__pct">{Math.round(scale * pctScale * 100)}%</span>
-      <button className="zoom-bar__btn" onClick={() => setScale(1.4)} aria-label={t("lightbox.zoomIn")}>
+      <button
+        className="zoom-bar__btn"
+        onClick={() => setScale(1.4)}
+        aria-label={t("lightbox.zoomIn")}
+      >
         +
       </button>
       <button
@@ -121,6 +124,36 @@ export function DetailPanel({
   closeLabel?: string;
 }) {
   const { t } = useTranslation();
+  const [actionError, setActionError] = useState<"reveal" | "map" | null>(null);
+  const [pendingAction, setPendingAction] = useState<"reveal" | "map" | null>(null);
+  const actionRevision = useRef(0);
+  const busy = useRef(false);
+  useEffect(() => {
+    actionRevision.current += 1;
+    busy.current = false;
+    setActionError(null);
+    setPendingAction(null);
+    return () => {
+      actionRevision.current += 1;
+    };
+  }, [photo.path]);
+  const runAction = async (kind: "reveal" | "map", action: () => Promise<unknown>) => {
+    if (busy.current) return;
+    busy.current = true;
+    const revision = actionRevision.current;
+    setPendingAction(kind);
+    setActionError(null);
+    try {
+      await action();
+    } catch {
+      if (revision === actionRevision.current) setActionError(kind);
+    } finally {
+      if (revision === actionRevision.current) {
+        busy.current = false;
+        setPendingAction(null);
+      }
+    }
+  };
   const dash = t("common.dash");
   const isVideo = photo.kind === "video";
   const dims = photo.width && photo.height ? `${photo.width} × ${photo.height}` : dash;
@@ -143,7 +176,7 @@ export function DetailPanel({
         href={gpsUrl}
         onClick={(e) => {
           e.preventDefault();
-          openExternal(gpsUrl).catch(() => {});
+          void runAction("map", () => openExternal(gpsUrl));
         }}
       >
         {photo.gps_lat.toFixed(5)}, {photo.gps_lon.toFixed(5)}
@@ -156,12 +189,20 @@ export function DetailPanel({
   const rows: { label: string; value: ReactNode; show?: boolean }[] = [
     { label: t("detail.field.taken_at"), value: formatDate(photo.taken_at) },
     { label: t("detail.field.dims"), value: dims },
-    { label: t("detail.field.duration"), value: formatDuration(photo.duration) || dash, show: isVideo },
+    {
+      label: t("detail.field.duration"),
+      value: formatDuration(photo.duration) || dash,
+      show: isVideo,
+    },
     { label: t("detail.field.size"), value: formatSize(photo.file_size) },
     { label: t("detail.field.format"), value: photo.ext.toUpperCase() },
     { label: t("detail.field.camera"), value: joinCamera(photo, dash) },
     { label: t("detail.field.lens"), value: photo.lens ?? dash, show: !isVideo },
-    { label: t("detail.field.aperture"), value: photo.aperture ? `f/${photo.aperture}` : dash, show: !isVideo },
+    {
+      label: t("detail.field.aperture"),
+      value: photo.aperture ? `f/${photo.aperture}` : dash,
+      show: !isVideo,
+    },
     { label: t("detail.field.shutter"), value: photo.shutter ?? dash, show: !isVideo },
     { label: t("detail.field.iso"), value: photo.iso ? String(photo.iso) : dash, show: !isVideo },
     {
@@ -206,10 +247,28 @@ export function DetailPanel({
       </div>
       <button
         className="btn detail__reveal"
-        onClick={() => revealInFinder(photo.path).catch(() => {})}
+        disabled={pendingAction !== null}
+        aria-busy={pendingAction === "reveal" || undefined}
+        onClick={() => void runAction("reveal", () => revealInFinder(photo.path))}
       >
         {t("detail.reveal")}
       </button>
+      {actionError && (
+        <div className="detail__action-error" role="alert">
+          <p>{t(`detail.${actionError}Failed`)}</p>
+          <button
+            className="btn"
+            disabled={pendingAction !== null}
+            onClick={() =>
+              void runAction(actionError, () =>
+                actionError === "reveal" ? revealInFinder(photo.path) : openExternal(gpsUrl!),
+              )
+            }
+          >
+            {t("detail.retry")}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1666,3 +1666,6 @@ html.viewer-window {
   .search:focus-within { outline: 2px solid Highlight; outline-offset: 2px; }
   .settings, .select-menu { border: 1px solid CanvasText; box-shadow: none; }
 }
+
+.detail__action-error { margin-block-start: 12px; font-size: 0.8125rem; line-height: 1.5; }
+.detail__action-error p { margin: 0 0 8px; overflow-wrap: anywhere; }

@@ -105,7 +105,10 @@
     "noParams": "No capture settings",
     "video": "Video",
     "reveal": "Reveal in Finder",
-    "close": "Close (Esc)"
+    "close": "Close (Esc)",
+    "revealFailed": "Could not reveal this file. It may have moved, or the system may be unavailable.",
+    "mapFailed": "Could not open the map. Check your default browser and try again.",
+    "retry": "Try again"
   },
   "viewer": {
     "info": "Info (I)",

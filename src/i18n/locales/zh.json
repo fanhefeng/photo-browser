@@ -103,7 +103,10 @@
     "noParams": "无拍摄参数",
     "video": "视频",
     "reveal": "在访达中显示",
-    "close": "关闭 (Esc)"
+    "close": "关闭 (Esc)",
+    "revealFailed": "无法在文件管理器中定位文件。文件可能已移动，或系统暂时无法响应。",
+    "mapFailed": "无法打开地图，请检查默认浏览器后重试。",
+    "retry": "重试"
   },
   "viewer": {
     "info": "信息 (I)",
